@@ -1,0 +1,111 @@
+--- "/c/Users/Matheus/Documents/Paradox Interactive/Crusader Kings III/mod/auto_raid/dll/ar_core.c"	2026-10-04 21:48:51.982682000 -0300
++++ core_prova.c	2026-10-04 22:03:58.866415100 -0300
+@@ -9,6 +9,9 @@
+ #include <stdint.h>
+ #include <string.h>
+ #include "ar_host.h"
++#include <stdarg.h>
++#include "libtcc.h"
++#include "../ck3_api.h"
+ 
+ // comandos
+ #define RVA_VT_MOVE_UNIT   0x432bef0
+@@ -1202,8 +1205,74 @@
+ 	LOG("console: enviado: %s", text);
+ }
+ 
++// ---- prova do plugin em fonte C (docs/arquitetura_dll.md, 7c) ----
++static int set_scope_var(void **ctx, const char *name, int64_t fixed);
++static TCCState *tcc_s;
++static const ck3_plugin *tcc_pl;
++static void api_log(const char *fmt, ...)
++{
++	char b[512];
++	va_list ap;
++	va_start(ap, fmt);
++	vsnprintf(b, sizeof b, fmt, ap);
++	va_end(ap);
++	LOG("%s", b);
++}
++static int api_set_var(void *ctx, const char *name, int64_t v) { return ctx ? set_scope_var(ctx, name, v) : 0; }
++static int api_eta(uint32_t unit, uint32_t prov)
++{
++	uint8_t *u = unit_by_id(unit), *p = province_by_id(prov);
++	return u && p ? eta_days(u, p, NULL, NULL, NULL, 0, NULL) : -1;
++}
++static const ck3_api TCC_API = { 1, api_log, api_set_var, api_eta };
++static void tcc_err(void *o, const char *msg) { LOG("tcc: %s", msg); }
++
++static void cmd_tcc(const char *file)
++{
++	LARGE_INTEGER t0, t1, fq;
++	QueryPerformanceFrequency(&fq);
++	QueryPerformanceCounter(&t0);
++	char dir[MAX_PATH], p[MAX_PATH + 32];
++	snprintf(dir, sizeof dir, "%s", file);
++	char *sl = strrchr(dir, '/');
++	if (sl)
++		*sl = 0;
++	TCCState *s = tcc_new();
++	snprintf(p, sizeof p, "%sck3", H->dir);
++	tcc_set_lib_path(s, p);
++	tcc_set_error_func(s, NULL, tcc_err);
++	snprintf(p, sizeof p, "%sck3/include", H->dir);
++	tcc_add_sysinclude_path(s, p);
++	tcc_add_include_path(s, dir);
++	tcc_set_options(s, "-nostdlib");
++	tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
++	tcc_add_symbol(s, "memset", memset);
++	tcc_add_symbol(s, "memcpy", memcpy);
++	tcc_add_symbol(s, "memmove", memmove);
++	snprintf(p, sizeof p, "%sck3/lib/libtcc1.a", H->dir);
++	const ck3_plugin *(*start)(const ck3_api *) = NULL;
++	if (tcc_add_file(s, file) < 0 || tcc_add_file(s, p) < 0 || tcc_relocate(s) < 0 ||
++	    !(start = tcc_get_symbol(s, "ck3_plugin_start"))) {
++		tcc_delete(s);
++		LOG("tcc: %s recusado; plugin anterior %s", file, tcc_pl ? "mantido" : "(nenhum)");
++		return;
++	}
++	const ck3_plugin *pl = start(&TCC_API);
++	TCCState *old = tcc_s;
++	tcc_pl = pl;
++	tcc_s = s;
++	if (old)
++		tcc_delete(old);
++	QueryPerformanceCounter(&t1);
++	LOG("tcc: %s compilado e carregado em %.1f ms", file, (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)fq.QuadPart);
++}
++
+ static void on_command(const char *line)
+ {
++	if (!strncmp(line, "tcc ", 4)) {
++		cmd_tcc(line + 4);
++		return;
++	}
+ 	if (!strncmp(line, "console ", 8)) {
+ 		cmd_console(line + 8);
+ 		return;
+@@ -1708,6 +1777,10 @@
+ 		LOG("efeito chamar: sem resposta (pedido mudo, simula o jogo sem a DLL)");
+ 		return;
+ 	}
++	if (tcc_pl && !strcmp(fn, "ping_livre")) {
++		tcc_pl->on_effect(name, scope_type, scope_id, value, ctx, thread);
++		return;
++	}
+ 	if (!strcmp(fn, "ping") || !strcmp(fn, "ping_livre") || !strcmp(fn, "chamar")) {
+ 		int ok = set_scope_var(ctx, "ar_resp", value * 2);
+ 		LOG("efeito %s: escopo tipo=0x%x id=%u unidade=%u valor=%.3f thread=%u (%s) ar_resp=%s", name, scope_type,
+@@ -2016,4 +2089,11 @@
+ 	return &CORE;
+ }
+ 
+-__declspec(dllexport) void ar_stop(void) { hook2_remove(); }
++__declspec(dllexport) void ar_stop(void)
++{
++	hook2_remove();
++	if (tcc_s)
++		tcc_delete(tcc_s);
++	tcc_s = NULL;
++	tcc_pl = NULL;
++}

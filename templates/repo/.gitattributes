@@ -1,0 +1,2 @@
+# Keep game files byte-for-byte (BOM + CRLF/LF exactly as the game expects).
+* -text

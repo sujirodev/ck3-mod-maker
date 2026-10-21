@@ -1,0 +1,31 @@
+name: Bug report
+description: Something in {{titulo}} does not work.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you saw. Screenshots help a lot.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Game version and mod version.
+      placeholder: "CK3 1.19.0, {{titulo}} {{versao}}"
+    validations:
+      required: true
+  - type: textarea
+    id: mods
+    attributes:
+      label: Mod list
+      description: Other enabled mods, in load order.
+  - type: textarea
+    id: log
+    attributes:
+      label: error.log lines
+      description: Lines mentioning {{prefixo}} from Documents/Paradox Interactive/Crusader Kings III/logs/error.log.
+      render: text

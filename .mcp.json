@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ck3": {
+      "command": "uv",
+      "args": ["run", "--project", "${CLAUDE_PROJECT_DIR:-.}", "ck3-mcp"]
+    }
+  }
+}

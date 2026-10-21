@@ -1,0 +1,37 @@
+{
+  "enabledMcpjsonServers": ["ck3"],
+  "permissions": {
+    "allow": [
+      "mcp__ck3__ck3_state",
+      "mcp__ck3__ck3_eval",
+      "mcp__ck3__ck3_trigger",
+      "mcp__ck3__ck3_dll_log",
+      "mcp__ck3__ck3_errors",
+      "mcp__ck3__ck3_mark",
+      "mcp__ck3__ck3_ref",
+      "mcp__ck3__ck3_vanilla",
+      "mcp__ck3__ck3_plugin",
+      "Bash(uv run ck3ctl state)",
+      "Bash(uv run ck3ctl tail:*)",
+      "Bash(uv run ck3ctl errors:*)",
+      "Bash(uv run ck3ctl check:*)",
+      "Bash(uv run ck3ctl mod check:*)",
+      "Bash(uv run ck3ctl mod list)",
+      "Bash(uv run ck3ctl ref:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/tools/ck3ctl/hook.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

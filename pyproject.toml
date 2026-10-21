@@ -1,0 +1,18 @@
+[project]
+name = "ck3ctl"
+version = "0.1.0"
+description = "Ferramentas agenticas para criar mods de Crusader Kings III com a DLL ck3_custom"
+requires-python = ">=3.12"
+dependencies = ["mcp>=2.3,<3"]
+
+[project.scripts]
+ck3ctl = "ck3ctl.cli:main"
+ck3-mcp = "ck3ctl.mcp_server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "tools" }
+packages = ["ck3ctl"]

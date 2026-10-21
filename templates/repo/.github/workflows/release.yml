@@ -1,0 +1,25 @@
+name: Package
+
+# Thin caller: the pipeline lives in ck3-mod-maker (.github/workflows/mod-release.yml + pipeline/). To update it,
+# change both refs below to the new ck3-mod-maker tag.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  # Manual run: re-syncs the Nexus Mods page text without a new release.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: {{pipeline_repo}}/.github/workflows/mod-release.yml@{{pipeline_ref}}
+    with:
+      pipeline_ref: {{pipeline_ref}}
+      nexus_game_domain: ${{ vars.NEXUS_GAME_DOMAIN }}
+      nexus_game_mod_id: ${{ vars.NEXUS_GAME_MOD_ID }}
+      nexus_file_id: ${{ vars.NEXUS_FILE_ID }}
+    secrets:
+      NEXUSMODS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}

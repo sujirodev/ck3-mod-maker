@@ -1,0 +1,59 @@
+{
+  "mod": "guardian_calc_assistant",
+  "funcionalidades": [
+    {
+      "id": "f01",
+      "nome": "Pontuacao GCA em cada candidato",
+      "descricao": "Educate Child, Offer Guardianship e Offer Ward mostram a chance de progresso de educacao, o icone do traco projetado e o da universidade",
+      "depende_de": [],
+      "status": "feito",
+      "teste": "abrir Educate Child com uma crianca da corte e conferir a coluna GCA; uv run ck3ctl errors --mod guardian_calc_assistant",
+      "evidencia": "Publicado na 1.0.2 (CHANGELOG, 2026-10-21); sem teste registrado pelo ck3ctl"
+    },
+    {
+      "id": "f02",
+      "nome": "Tooltip com o detalhamento",
+      "descricao": "Pesos de progresso, projecao de pontos fator a fator, chance de cada nivel 1 a 5 (com e sem universidade) e notas do par",
+      "depende_de": ["f01"],
+      "status": "feito",
+      "teste": "passar o mouse na pontuacao GCA; conferir as linhas da projecao e das chances por nivel",
+      "evidencia": "Publicado na 1.0.2 (CHANGELOG, 2026-10-21); sem teste registrado pelo ck3ctl"
+    },
+    {
+      "id": "f03",
+      "nome": "Interacao Find Guardian (GCA)",
+      "descricao": "Busca na corte e em toda corte no alcance diplomatico e abre Educate Child ou Offer Ward preenchido",
+      "depende_de": [],
+      "status": "feito",
+      "teste": "uv run ck3ctl effect com a interacao tnt_ga_find_guardian_interaction numa crianca da corte; conferir a janela",
+      "evidencia": "Publicado na 1.0.0 (CHANGELOG, 2026-10-20); sem teste registrado pelo ck3ctl"
+    },
+    {
+      "id": "f04",
+      "nome": "Ordenar pela pontuacao",
+      "descricao": "Busca abre ordenada pela maior pontuacao; botoes GCA: by score e Default list",
+      "depende_de": ["f01", "f03"],
+      "status": "feito",
+      "teste": "abrir Find Guardian e conferir a ordem; deixar passar um dia com a janela aberta (correcao da 1.0.2)",
+      "evidencia": "Publicado na 1.0.0, corrigido na 1.0.2 (CHANGELOG); sem teste registrado pelo ck3ctl"
+    },
+    {
+      "id": "f05",
+      "nome": "Filtro Quick / Intelligent / Genius",
+      "descricao": "Caixas acima da lista e o filtro nativo de tracos no painel de filtros",
+      "depende_de": ["f03"],
+      "status": "feito",
+      "teste": "marcar cada caixa e conferir que a lista so mostra o traco marcado",
+      "evidencia": "Publicado na 1.0.0 (CHANGELOG, 2026-10-20); sem teste registrado pelo ck3ctl"
+    },
+    {
+      "id": "f06",
+      "nome": "Release pelo pipeline compartilhado",
+      "descricao": "Trocar o tools/package.py, changelog.py, nexus_page.py e o release.yml proprios pelo workflow reutilizavel do ck3-mod-maker, com o mesmo zip",
+      "depende_de": [],
+      "status": "em_andamento",
+      "teste": "python <ck3-mod-maker>/pipeline/package.py --mod . gera zip identico byte a byte ao do tools/package.py; run do workflow verde num push",
+      "evidencia": ""
+    }
+  ]
+}

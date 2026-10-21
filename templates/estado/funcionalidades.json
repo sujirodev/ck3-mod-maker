@@ -1,0 +1,23 @@
+{
+  "mod": "{{nome}}",
+  "funcionalidades": [
+    {
+      "id": "f01",
+      "nome": "Mod carrega sem erro",
+      "descricao": "O jogo abre com o mod ativo e o error.log nao tem erro de arquivo do mod",
+      "depende_de": [],
+      "status": "pendente",
+      "teste": "uv run ck3ctl errors --mod {{nome}}",
+      "evidencia": ""
+    },
+    {
+      "id": "f02",
+      "nome": "Evento de teste dispara",
+      "descricao": "Trocar pela primeira funcionalidade real do mod",
+      "depende_de": ["f01"],
+      "status": "pendente",
+      "teste": "uv run ck3ctl effect \"trigger_event = {{prefixo}}.0001\"",
+      "evidencia": ""
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+# Release settings read by the shared pipeline (ck3-mod-maker/pipeline). Only `include` goes into the zip.
+[mod]
+dir = "{{nome}}"
+title = "{{titulo}}"
+# include = ["descriptor.mod", "README.md", "LICENSE", "thumbnail.png", "common", "events", "gfx", "gui", "localization"]
+# exclude = "teste|test|debug"

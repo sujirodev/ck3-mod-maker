@@ -1,0 +1,10 @@
+# Plugin C do {{titulo}} (docs/dll/arquitetura_dll.md, secao 6). Efeito ou variavel nova aqui exige reabrir o jogo;
+# mudanca no .c recompila sozinha em -debug_mode.
+# Linhas: nome <mod> | api <versao> | fonte <arquivo.c> | <efeito> (escopo exercito) | <efeito> livre | var <nome>
+nome {{nome}}
+api 7
+fonte {{nome}}.c
+
+{{prefixo}}_ping livre
+
+var {{prefixo}}_resp

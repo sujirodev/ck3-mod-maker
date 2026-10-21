@@ -1,0 +1,126 @@
+# Shared release pipeline for CK3 mod repositories (reusable workflow).
+# A mod repository calls it from .github/workflows/release.yml (see templates/repo) and keeps only ck3mod.toml,
+# descriptor.mod and CHANGELOG.md. Built from the guardian_calc_assistant release workflow.
+#
+# Every run: builds the zip (pipeline/package.py) and uploads it as a run artifact.
+# Tags (vX.Y.Z): checks the tag against descriptor.mod, takes the notes from CHANGELOG.md (pipeline/changelog.py)
+#   and publishes a GitHub Release with the zip.
+# Nexus Mods (tags and manual runs): skipped until the caller passes nexus_game_domain, nexus_game_mod_id and
+#   nexus_file_id and the NEXUSMODS_API_KEY secret. The mod page and its first file must be created by hand.
+name: CK3 mod release
+
+on:
+  workflow_call:
+    inputs:
+      pipeline_ref:
+        description: ck3-mod-maker ref whose pipeline/ scripts are used; keep it equal to the ref in `uses:`
+        type: string
+        default: main
+      nexus_game_domain:
+        type: string
+        default: ""
+      nexus_game_mod_id:
+        type: string
+        default: ""
+      nexus_file_id:
+        type: string
+        default: ""
+    secrets:
+      NEXUSMODS_API_KEY:
+        required: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mod
+
+      - uses: actions/checkout@v4
+        with:
+          repository: sujirodev/ck3-mod-maker
+          ref: ${{ inputs.pipeline_ref }}
+          path: ck3-mod-maker
+          sparse-checkout: pipeline
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build zip
+        id: build
+        run: |
+          python ck3-mod-maker/pipeline/package.py --mod mod --info >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            zip_path=$(python ck3-mod-maker/pipeline/package.py --mod mod --tag "$GITHUB_REF_NAME")
+          else
+            zip_path=$(python ck3-mod-maker/pipeline/package.py --mod mod)
+          fi
+          echo "zip=$zip_path" >> "$GITHUB_OUTPUT"
+          unzip -l "$zip_path"
+
+      # CHANGELOG.md is the single source of release notes. Tags fail here, before anything is published, if the
+      # version has no section.
+      - name: Changelog
+        id: changelog
+        if: github.ref_type == 'tag'
+        run: |
+          python ck3-mod-maker/pipeline/changelog.py --mod mod "${{ steps.build.outputs.version }}" --format md > release_notes.md
+          {
+            echo "text<<MOD_CHANGELOG_EOF"
+            python ck3-mod-maker/pipeline/changelog.py --mod mod "${{ steps.build.outputs.version }}" --format text
+            echo "MOD_CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+          cat release_notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.dir }}
+          path: ${{ steps.build.outputs.zip }}
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        working-directory: mod
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "${{ steps.build.outputs.zip }}" \
+            --title "${{ steps.build.outputs.title }} $GITHUB_REF_NAME" \
+            --notes-file ../release_notes.md
+
+      - name: Resolve Nexus Mods mod
+        id: nexus
+        if: (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') && inputs.nexus_game_domain != '' && inputs.nexus_game_mod_id != '' && inputs.nexus_file_id != ''
+        env:
+          NEXUSMODS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+        run: |
+          # Assign first so a failed lookup fails the step (inside echo it would not).
+          mod_id=$(python ck3-mod-maker/pipeline/nexus_page.py resolve --game '${{ inputs.nexus_game_domain }}' --game-mod-id '${{ inputs.nexus_game_mod_id }}')
+          echo "Nexus Mods unique mod id: $mod_id"
+          echo "mod_id=$mod_id" >> "$GITHUB_OUTPUT"
+
+      # Adds the zip as a new version of the existing Nexus Mods file.
+      # Pinned to the commit of Nexus-Mods/upload-action v1.0.0-beta.11.
+      - name: Upload to Nexus Mods
+        if: github.ref_type == 'tag' && steps.nexus.outputs.mod_id != ''
+        uses: Nexus-Mods/upload-action@98532f7670c27cbecc78fae03fa3e278147827e2
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ inputs.nexus_file_id }}
+          mod_id: ${{ steps.nexus.outputs.mod_id }}
+          filename: ${{ steps.build.outputs.zip }}
+          version: ${{ steps.build.outputs.version }}
+          display_name: ${{ steps.build.outputs.title }} ${{ steps.build.outputs.version }}
+          changelog: ${{ steps.changelog.outputs.text }}
+          archive_existing_version: true
+          update_mod_version: true
+
+      # Replaces the page summary and full description with the mod's docs/ (BBCode).
+      - name: Update Nexus Mods page text
+        if: steps.nexus.outputs.mod_id != ''
+        env:
+          NEXUSMODS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+        run: |
+          python ck3-mod-maker/pipeline/nexus_page.py update --mod-id '${{ steps.nexus.outputs.mod_id }}' \
+            --summary mod/docs/nexus_summary.txt --description mod/docs/nexus_description.bbcode
