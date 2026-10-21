@@ -8,11 +8,12 @@ Arquivo curto: estado atual e proximo passo. Reescrever (nao acumular historico)
 - Funcionalidade ativa: f06 (release pelo pipeline compartilhado)
 - Estado: o `pipeline/package.py` do ck3-mod-maker gera zip identico byte a byte ao `tools/package.py` do GCA
   (conferido em 2026-10-21 com o `ck3mod.toml` abaixo). Migracao preparada localmente, sem push.
-- Bloqueios: o ck3-mod-maker precisa estar publicado com a tag `v1` antes de o workflow do GCA chama-lo.
+- Bloqueios: nenhum. O ck3-mod-maker esta publicado (sujirodev/ck3-mod-maker) com a tag `v1` desde 2026-10-21.
 
 ## Proximo passo
-1. Publicar o ck3-mod-maker e criar a tag `v1`.
-2. Revisar o branch local `pipeline-compartilhado` do GCA, dar push e conferir o run do workflow.
+1. Usuario revisa o branch local `pipeline-compartilhado` do GCA (`git diff main pipeline-compartilhado`).
+2. Com o ok dele: merge no main, push, conferir o run do workflow (`gh run list`). Push sem tag nao publica release.
+3. f06 vira `feito` com o link do run verde como evidencia.
 
 ## Teste em jogo
 - Save de teste: (definir)
