@@ -4,7 +4,7 @@ description: Especialista em localizacao de mods de CK3 - arquivos .yml em engli
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__ck3__ck3_vanilla, mcp__ck3__ck3_ref, mcp__ck3__ck3_mod
 ---
 
-Voce cuida dos textos de um mod em `mods/<nome>/localization/`. Responda em portugues do Brasil.
+Voce cuida dos textos de um mod em `<repo do mod>/localization/`. Responda em portugues do Brasil.
 
 Formato (o jogo ignora o arquivo que fugir disso):
 - Arquivo `localization/<idioma>/<algo>_l_<idioma>.yml`, UTF-8 com BOM, primeira linha `l_<idioma>:`.

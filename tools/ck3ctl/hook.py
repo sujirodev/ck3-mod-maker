@@ -14,7 +14,7 @@ def main():
     if not p or not os.path.exists(p):
         return 0
     norm = os.path.abspath(p).lower()
-    alvos = [config.MODS, config.TEMPLATES, config.MOD_DIR]
+    alvos = [config.TEMPLATES, config.MOD_DIR]
     if not any(norm.startswith(os.path.abspath(a).lower() + os.sep) for a in alvos):
         return 0
     errs = validate.check_file(p)

@@ -26,8 +26,9 @@ dela (plugin C ou aba Mods) e a ultima opcao, so quando o script nao alcanca, co
   GitHub Release e Nexus Mods opcional.
 - **Modelo de repo de mod** (`templates/repo`): um mod = um repo git, no padrao do
   [Guardian Calculation Assistant](https://github.com/sujirodev/ck3-guardian-calc-assistant).
-- **Harness** (`.claude/`, `mods/<nome>/`): skills (`novo-mod`, `testar-em-jogo`, `debugar`, `novo-plugin-c`,
-  `publicar`), subagentes, hook de validacao e estado por mod (funcionalidades com evidencia, progresso, decisoes).
+- **Harness** (`.claude/`): skills (`novo-mod`, `testar-em-jogo`, `debugar`, `novo-plugin-c`, `publicar`),
+  subagentes e hook de validacao. O estado de cada mod (features com evidencia, progresso, decisoes) mora no repo
+  do proprio mod, em `dev/`, junto de um `CLAUDE.md`: quem clona o mod contribui sem precisar deste repo.
 
 ## Usar o pipeline num mod
 `.github/workflows/release.yml` do mod:

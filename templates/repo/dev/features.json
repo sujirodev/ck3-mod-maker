@@ -1,0 +1,23 @@
+{
+  "mod": "{{nome}}",
+  "features": [
+    {
+      "id": "f01",
+      "name": "Mod loads without errors",
+      "description": "The game starts with the mod enabled and error.log has no error from a mod file",
+      "depends_on": [],
+      "status": "todo",
+      "test": "start the game with -debug_mode and check logs/error.log for {{prefixo}}",
+      "evidence": ""
+    },
+    {
+      "id": "f02",
+      "name": "Test event fires",
+      "description": "Replace with the first real feature of the mod",
+      "depends_on": ["f01"],
+      "status": "todo",
+      "test": "console: effect trigger_event = {{prefixo}}.0001",
+      "evidence": ""
+    }
+  ]
+}

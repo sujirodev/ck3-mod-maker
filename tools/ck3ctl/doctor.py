@@ -60,10 +60,9 @@ def run():
         r.append(('ok', 'jogo', 'fechado'))
 
     for m in mods.listing():
-        f = os.path.join(mods.estado(m['nome']), 'funcionalidades.json')
-        resumo = ''
-        if os.path.exists(f):
-            fs = json.load(open(f, encoding='utf-8-sig')).get('funcionalidades', [])
+        fs = mods.features(m['nome'])
+        resumo = '' if fs is not None else 'sem dev/features.json (mod init)'
+        if fs:
             cont = {}
             for x in fs:
                 cont[x.get('status')] = cont.get(x.get('status'), 0) + 1
@@ -72,7 +71,7 @@ def run():
         r.append((nivel, 'mod ' + m['nome'], '%s%s%s%s' % (
             'ligado' if m['ligado_ao_jogo'] else 'sem .mod no launcher (mod link)',
             ', ativo' if m['ativo'] else ', inativo (mod enable)',
-            ', PLUGIN C' if m['plugin'] else '', '; ' + resumo if resumo else '')))
+            (', PLUGIN C' if m['plugin'] else '') + ('' if m['git'] else ', sem git'), '; ' + resumo if resumo else '')))
     return r
 
 

@@ -1,6 +1,6 @@
-# Mods: cada mod e um repositorio git proprio (padrao do guardian_calc_assistant), por padrao direto em
-# Documents/.../mod/<nome>. O estado do harness (mod.json, funcionalidades.json, progresso.md, decisoes.md) fica
-# fora dele, em ck3-mod-maker/mods/<nome>/, para o repo do mod so ter o que e do mod.
+# Mods: cada mod e um repositorio git autossuficiente (padrao do guardian_calc_assistant), por padrao direto em
+# Documents/.../mod/<nome>, com o proprio estado em dev/ (features.json, progress.md, decisions.md), CLAUDE.md e
+# ck3mod.toml. O ck3-mod-maker nao guarda registro: acha os mods pela pasta mod/ do jogo.
 import json, os, re, shutil, subprocess, time
 from . import config
 
@@ -8,28 +8,31 @@ NOME_OK = re.compile(r'^[a-z][a-z0-9_]{2,40}$')
 PREFIXO_OK = re.compile(r'^[a-z][a-z0-9_]{1,15}$')
 
 
-def estado(nome):
-    return os.path.join(config.MODS, nome)
-
-
-def info(nome):
-    p = os.path.join(estado(nome), 'mod.json')
-    return json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}
-
-
 def path(nome):
-    """Pasta do repositorio do mod."""
-    return info(nome).get('repo') or os.path.join(config.MOD_DIR, nome)
+    """Pasta do repo do mod: mod/<nome>, ou o path= do mod/<nome>.mod quando o repo mora em outro lugar."""
+    d = os.path.join(config.MOD_DIR, nome)
+    if os.path.isdir(d):
+        return d
+    f = os.path.join(config.MOD_DIR, nome + '.mod')
+    if os.path.exists(f):
+        m = re.search(r'^path="([^"]+)"', open(f, encoding='utf-8-sig').read(), re.M)
+        if m and os.path.isdir(m.group(1)):
+            return os.path.normpath(m.group(1))
+    return d
 
 
 def _render(text, ctx):
     return re.sub(r'\{\{(\w+)\}\}', lambda m: str(ctx.get(m.group(1), m.group(0))), text)
 
 
-def _copy_tree(src, dst, ctx):
+def _copy_tree(src, dst, ctx, only=None):
+    """Copia o modelo renderizado sem sobrescrever. only: prefixos de caminho relativo a copiar."""
+    novos = []
     for dp, _, fns in os.walk(src):
         for fn in fns:
-            rel = _render(os.path.relpath(os.path.join(dp, fn), src), ctx)
+            rel = _render(os.path.relpath(os.path.join(dp, fn), src), ctx).replace('\\', '/')
+            if only and not any(rel == o or rel.startswith(o + '/') for o in only):
+                continue
             out = os.path.join(dst, rel)
             if os.path.exists(out):
                 continue
@@ -38,6 +41,8 @@ def _copy_tree(src, dst, ctx):
             bom = raw.startswith(b'\xef\xbb\xbf')
             with open(out, 'w', encoding='utf-8-sig' if bom else 'utf-8', newline='\n') as f:
                 f.write(_render(raw.decode('utf-8-sig'), ctx))
+            novos.append(rel)
+    return novos
 
 
 def _ctx(nome, titulo, prefixo, resumo, versao='0.1.0'):
@@ -47,59 +52,44 @@ def _ctx(nome, titulo, prefixo, resumo, versao='0.1.0'):
             'pipeline_ref': config.PIPELINE_REF}
 
 
-def _write_info(nome, data):
-    os.makedirs(estado(nome), exist_ok=True)
-    with open(os.path.join(estado(nome), 'mod.json'), 'w', encoding='utf-8', newline='\n') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.write('\n')
-
-
 def new(nome, titulo, prefixo=None, resumo='', plugin=False, config_mods=False, repo=None):
-    """Cria o repositorio do mod (templates/repo, + plugin/config se pedidos; os dois sao a ULTIMA OPCAO) com git
-    init, o estado em mods/<nome>/ e o arquivo do launcher."""
+    """Cria o repo do mod (templates/repo, + plugin/config se pedidos; os dois sao a ULTIMA OPCAO), git init e o
+    arquivo do launcher."""
     prefixo = prefixo or nome
     if not NOME_OK.match(nome):
         raise ValueError('nome do mod: minusculas, numeros e _, 3 a 41 letras (pasta e nome do zip)')
     if not PREFIXO_OK.match(prefixo):
         raise ValueError('prefixo: minusculas, numeros e _, 2 a 16 letras (ex.: tnt_ga); vai em efeitos, eventos e chaves')
     dst = repo or os.path.join(config.MOD_DIR, nome)
-    if os.path.exists(dst) or os.path.exists(estado(nome)):
-        raise FileExistsError(dst if os.path.exists(dst) else estado(nome))
+    if os.path.exists(dst):
+        raise FileExistsError(dst)
     ctx = _ctx(nome, titulo, prefixo, resumo)
     for parte in ['repo'] + (['plugin'] if plugin else []) + (['config'] if config_mods else []):
         _copy_tree(os.path.join(config.TEMPLATES, parte), dst, ctx)
-    _copy_tree(os.path.join(config.TEMPLATES, 'estado'), estado(nome), ctx)
-    _write_info(nome, {'nome': nome, 'titulo': titulo, 'prefixo': prefixo, 'repo': dst.replace('\\', '/'),
-                       'github': None, 'criado': ctx['data']})
     subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=dst, check=True)
-    link(nome)
+    link(nome, dst)
     return dst
 
 
-def adopt(nome, repo=None, prefixo=None):
-    """Registra no harness um mod que ja existe (ex.: guardian_calc_assistant): cria mods/<nome>/ sem tocar no repo."""
-    repo = os.path.abspath(repo or os.path.join(config.MOD_DIR, nome))
+INIT_FILES = ['ck3mod.toml', 'CLAUDE.md', 'dev']
+
+
+def init(nome, prefixo, repo=None):
+    """Acrescenta a um mod existente o que falta do padrao (ck3mod.toml, CLAUDE.md, dev/), sem sobrescrever nada.
+    Devolve os arquivos criados; o resto (README, workflow, CHANGELOG) fica a cargo de quem cuida do mod."""
+    repo = repo or path(nome)
     if not os.path.exists(os.path.join(repo, 'descriptor.mod')):
         raise FileNotFoundError('sem descriptor.mod em %s' % repo)
-    if os.path.exists(os.path.join(estado(nome), 'mod.json')):
-        raise FileExistsError(estado(nome))
+    if not PREFIXO_OK.match(prefixo):
+        raise ValueError('prefixo: minusculas, numeros e _, 2 a 16 letras')
     desc = open(os.path.join(repo, 'descriptor.mod'), encoding='utf-8-sig').read()
     titulo = (re.search(r'^name="([^"]*)"', desc, re.M) or [None, nome])[1]
-    gh = None
-    r = subprocess.run(['git', 'remote', 'get-url', 'origin'], cwd=repo, capture_output=True, text=True)
-    m = re.search(r'github\.com[:/](.+?)(?:\.git)?$', r.stdout.strip())
-    if m:
-        gh = m.group(1)
-    ctx = _ctx(nome, titulo, prefixo or nome, '')
-    _copy_tree(os.path.join(config.TEMPLATES, 'estado'), estado(nome), ctx)
-    _write_info(nome, {'nome': nome, 'titulo': titulo, 'prefixo': prefixo, 'repo': repo.replace('\\', '/'),
-                       'github': gh, 'adotado': ctx['data']})
-    return estado(nome)
+    return _copy_tree(os.path.join(config.TEMPLATES, 'repo'), repo, _ctx(nome, titulo, prefixo, ''), INIT_FILES)
 
 
-def link(nome):
+def link(nome, src=None):
     """Arquivo mod/<nome>.mod do launcher. Repo fora da pasta mod/ do jogo: juncao mod/<nome> -> repo."""
-    src = path(nome)
+    src = src or path(nome)
     if not os.path.isdir(src):
         raise FileNotFoundError(src)
     dst = os.path.join(config.MOD_DIR, nome)
@@ -154,31 +144,39 @@ def enable(nome, on=True):
     return lst
 
 
+def features(nome):
+    f = os.path.join(path(nome), 'dev', 'features.json')
+    return json.load(open(f, encoding='utf-8-sig')).get('features', []) if os.path.exists(f) else None
+
+
 def status(nome):
-    """funcionalidades.json resumido + progresso.md: o ponto de partida de uma sessao no mod."""
-    d = estado(nome)
-    out = ['repo: %s' % path(nome)]
-    f = os.path.join(d, 'funcionalidades.json')
-    if os.path.exists(f):
-        for x in json.load(open(f, encoding='utf-8-sig')).get('funcionalidades', []):
-            out.append('%-4s %-12s %s%s' % (x.get('id'), x.get('status'), x.get('nome'),
-                                            ' <- ' + ', '.join(x['depende_de']) if x.get('depende_de') else ''))
-    else:
-        out.append('(sem funcionalidades.json)')
-    p = os.path.join(d, 'progresso.md')
-    out += ['', open(p, encoding='utf-8-sig').read() if os.path.exists(p) else '(sem progresso.md)']
+    """dev/features.json resumido + dev/progress.md: o ponto de partida de uma sessao no mod."""
+    repo = path(nome)
+    out = ['repo: %s' % repo]
+    fs = features(nome)
+    if fs is None:
+        out.append('(sem dev/features.json: ck3ctl mod init %s --prefixo <p>)' % nome)
+    for x in fs or []:
+        out.append('%-4s %-12s %s%s' % (x.get('id'), x.get('status'), x.get('name'),
+                                        ' <- ' + ', '.join(x['depends_on']) if x.get('depends_on') else ''))
+    p = os.path.join(repo, 'dev', 'progress.md')
+    out += ['', open(p, encoding='utf-8-sig').read() if os.path.exists(p) else '(sem dev/progress.md)']
     return '\n'.join(out)
 
 
 def listing():
+    """Mods que seguem o padrao: pastas em mod/ (ou apontadas por um .mod) com ck3mod.toml."""
     ativos = set(enabled())
+    nomes = set()
+    if os.path.isdir(config.MOD_DIR):
+        for e in os.listdir(config.MOD_DIR):
+            nomes.add(e[:-4] if e.endswith('.mod') else e)
     out = []
-    for n in sorted(os.listdir(config.MODS)) if os.path.isdir(config.MODS) else []:
-        if not os.path.exists(os.path.join(estado(n), 'mod.json')):
-            continue
+    for n in sorted(nomes):
         repo = path(n)
-        out.append({'nome': n, 'repo': repo, 'github': info(n).get('github'),
-                    'ligado_ao_jogo': os.path.exists(os.path.join(config.MOD_DIR, n + '.mod')),
-                    'ativo': 'mod/%s.mod' % n in ativos,
+        if not os.path.exists(os.path.join(repo, 'ck3mod.toml')):
+            continue
+        out.append({'nome': n, 'repo': repo, 'ligado_ao_jogo': os.path.exists(os.path.join(config.MOD_DIR, n + '.mod')),
+                    'ativo': 'mod/%s.mod' % n in ativos, 'git': os.path.isdir(os.path.join(repo, '.git')),
                     'plugin': os.path.exists(os.path.join(repo, 'plugin', 'plugin.txt'))})
     return out

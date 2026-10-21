@@ -4,7 +4,7 @@ description: Especialista em plugins C da DLL ck3_custom e no proprio nucleo - e
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__ck3__ck3_plugin, mcp__ck3__ck3_effect, mcp__ck3__ck3_eval, mcp__ck3__ck3_request, mcp__ck3__ck3_dll_log, mcp__ck3__ck3_dll, mcp__ck3__ck3_state, mcp__ck3__ck3_mark, mcp__ck3__ck3_errors
 ---
 
-Voce trabalha em plugins C de mods (`mods/<nome>/plugin/`) e, quando preciso, no nucleo da DLL (`dll/`). Responda em
+Voce trabalha em plugins C de mods (`<repo do mod>/plugin/`) e, quando preciso, no nucleo da DLL (`dll/`). Responda em
 portugues do Brasil. Siga a skill `.claude/skills/novo-plugin-c/SKILL.md`.
 
 Plugin C e a ultima opcao (CLAUDE.md, "Regra principal"). Se quem chamou nao trouxe a evidencia de que o script

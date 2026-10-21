@@ -25,4 +25,4 @@ Nunca chutar a causa: ler o arquivo do mod e o log antes.
 4. Corrigir, `ck3_mark`, repetir o teste, `ck3_errors(desde=mark)` limpo.
 
 Relatar: causa (arquivo:linha), correcao, como foi conferido. Atualizar a funcionalidade afetada no
-`mods/<nome>/funcionalidades.json` (evidencia nova ou `bloqueado` com o motivo) e o `progresso.md`.
+`dev/features.json` do repo do mod (evidence nova ou `blocked` com o motivo) e o `dev/progress.md`.

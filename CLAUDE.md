@@ -30,9 +30,8 @@ Antes de propor plugin C ou aba Mods:
 |---|---|
 | `dll/` | Fonte da DLL `ck3_custom` (carregador `winmm.dll` + nucleo `ck3_custom_core.dll` + `ck3_api.h` dos plugins). Pedidos e efeitos em `dll/LEIAME.md`; arquitetura em `docs/dll/arquitetura_dll.md`; enderecos e engenharia reversa em `docs/dll/re*` |
 | `tools/ck3ctl/` | Biblioteca Python, CLI (`uv run ck3ctl ...`) e servidor MCP `ck3` (ferramentas `mcp__ck3__*`) |
-| `mods/<nome>/` | So o estado do harness de cada mod: `mod.json` (onde esta o repo), `funcionalidades.json`, `progresso.md`, `decisoes.md` |
 | `pipeline/` + `.github/workflows/mod-release.yml` | Pipeline de release compartilhado (zip, changelog, GitHub Release, Nexus), chamado pelo `release.yml` de cada mod numa tag fixa (`v1`) |
-| `templates/` | `repo` (repo de mod, padrao do guardian_calc_assistant), `estado` (arquivos do harness), `plugin` e `config` (ultima opcao) |
+| `templates/` | `repo` (repo de mod, padrao do guardian_calc_assistant, com `dev/` e `CLAUDE.md`), `plugin` e `config` (ultima opcao) |
 | `reference/` | Gerado (fora do git): `script_docs` do jogo indexado (`ck3ctl ref build`) |
 | `.claude/skills/`, `.claude/agents/` | Fluxos (novo-mod, testar-em-jogo, debugar, novo-plugin-c, publicar) e especialistas |
 
@@ -40,9 +39,12 @@ Antes de propor plugin C ou aba Mods:
 Cada mod e um repo git proprio, por padrao direto em `Documents\Paradox Interactive\Crusader Kings III\mod\<nome>`
 (o jogo le dali), no padrao do guardian_calc_assistant: conteudo do jogo na raiz; `README.md`, `CHANGELOG.md`,
 `CONTRIBUTING.md`, `LICENSE` e `docs/` em ingles; `ck3mod.toml` (o que entra no zip); `.github/workflows/release.yml`
-de poucas linhas chamando o pipeline compartilhado. Nada do harness entra no repo do mod.
+de poucas linhas chamando o pipeline compartilhado. O repo e autossuficiente: carrega o proprio estado em `dev/`
+(`features.json`, `progress.md`, `decisions.md`, em ingles) e um `CLAUDE.md` com as regras, para qualquer pessoa ou
+agente contribuir so com o repo do mod. O ck3-mod-maker nao guarda registro: acha os mods em `mod/` pelo `ck3mod.toml`.
 - Criar: `ck3ctl mod new <nome> "<Titulo>" --prefixo <curto> --resumo "<one line>"`. Prefixo curto em tudo que o
-  mod cria (ex.: `tnt_ga`). Mod que ja existe: `ck3ctl mod adopt <nome>`.
+  mod cria (ex.: `tnt_ga`). Mod que ja existe: `ck3ctl mod init <nome> --prefixo <p>` (acrescenta
+  `ck3mod.toml`, `CLAUDE.md` e `dev/` sem sobrescrever nada).
 - Push, tag e release do repo de um mod sao acoes externas: so com o pedido do usuario.
 - Mudanca no `pipeline/` que muda comportamento: nova tag (`v2`) e os mods migram um a um trocando o ref no
   `release.yml`; nunca mover uma tag ja usada.
@@ -59,13 +61,14 @@ conhece), dados em `Documents\Paradox Interactive\Crusader Kings III`, TinyCC em
 5. Escolha de caminho: ver "Regra principal" acima. Plugin C so com aprovacao do usuario.
 
 ## Sessao (estado fica em arquivo, nao na conversa)
-Cada mod tem, em `mods/<nome>/` (fora do repo do mod), `funcionalidades.json` (lista com status, comando de teste e evidencia) e `progresso.md` (estado atual
-e proximo passo, reescrito, nunca um historico crescente). O hook valida o `funcionalidades.json`.
+Cada repo de mod tem `dev/features.json` (features com status, como testar e evidencia) e `dev/progress.md` (estado
+atual e proximo passo, reescrito, nunca um historico crescente). O hook valida o `features.json`. Sao do mod:
+escrever em ingles, como o resto do repo.
 - Inicio: `ck3_doctor`; para trabalhar num mod, `ck3_mod(acao="status", nome)`.
-- Durante: uma funcionalidade `em_andamento` por vez. `feito` so com evidencia do teste rodado (data, comando,
-  resultado); "parece funcionar" nao conta. Sem como testar ainda: fica `em_andamento` ou `bloqueado` com o motivo.
-- Fim (ou antes de parar por bloqueio): atualizar `funcionalidades.json`, reescrever `progresso.md`, decisoes
-  duradouras em `decisoes.md`.
+- Durante: uma feature `in_progress` por vez. `done` so com evidencia do teste rodado (data, comando, resultado);
+  "parece funcionar" nao conta. Sem como testar ainda: fica `in_progress` ou `blocked` com o motivo.
+- Fim (ou antes de parar por bloqueio): atualizar `dev/features.json`, reescrever `dev/progress.md`, decisoes
+  duradouras em `dev/decisions.md`.
 
 ## Regras do jogo e da DLL (aprendidas no Auto Raid; quebrar custa uma queda do jogo)
 - Efeito ou console so com a partida carregada e pausada: durante a carga (`state` com velocidade 0) um efeito

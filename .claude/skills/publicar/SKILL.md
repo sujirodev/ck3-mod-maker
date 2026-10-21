@@ -1,6 +1,6 @@
 ---
 name: publicar
-description: Publicar versao de mod de CK3 - confere funcionalidades, CHANGELOG, versao, zip pelo pipeline compartilhado, tag e release. Usar ao publicar.
+description: Publicar versao de mod de CK3 - confere features, CHANGELOG, versao, zip pelo pipeline compartilhado, tag e release. Usar ao publicar.
 ---
 
 # Publicar
@@ -8,7 +8,7 @@ description: Publicar versao de mod de CK3 - confere funcionalidades, CHANGELOG,
 O release roda no GitHub pelo pipeline compartilhado (`.github/workflows/mod-release.yml` do ck3-mod-maker), chamado
 pelo `release.yml` do mod. A tag `vX.Y.Z` publica o GitHub Release e, se configurado, a versao no Nexus Mods.
 
-1. `ck3_mod(acao="check")` limpo e todas as funcionalidades de `mods/<nome>/funcionalidades.json` em `feito` com
+1. `ck3_mod(acao="check")` limpo e todas as features de `dev/features.json` em `done` com
    evidencia da versao final (skill `testar-em-jogo`). Alguma pendente ou bloqueada: mostrar ao usuario antes.
 2. `descriptor.mod`: subir `version`; conferir `supported_version`.
 3. `CHANGELOG.md`: secao `## [x.y.z] - AAAA-MM-DD`, uma linha `- ` por mudanca, em ingles. Sem ela a tag falha.

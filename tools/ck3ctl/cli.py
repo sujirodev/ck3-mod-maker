@@ -48,13 +48,13 @@ def main(argv=None):
     a.add_argument('--prefixo', help='prefixo curto de efeitos/eventos/chaves (padrao: nome)'); a.add_argument('--resumo', default='')
     a.add_argument('--plugin', action='store_true'); a.add_argument('--config', action='store_true')
     a = m.add_parser('link'); a.add_argument('nome')
-    a = m.add_parser('adopt', help='registra um mod existente'); a.add_argument('nome'); a.add_argument('--repo'); a.add_argument('--prefixo')
+    a = m.add_parser('init', help='acrescenta ck3mod.toml, CLAUDE.md e dev/ a um mod existente'); a.add_argument('nome'); a.add_argument('--prefixo', required=True); a.add_argument('--repo')
     a = m.add_parser('package', help='zip pelo pipeline compartilhado'); a.add_argument('nome'); a.add_argument('--tag')
     a = m.add_parser('enable'); a.add_argument('nome')
     a = m.add_parser('disable'); a.add_argument('nome')
     m.add_parser('list')
     a = m.add_parser('check'); a.add_argument('nome')
-    a = m.add_parser('status', help='funcionalidades e progresso'); a.add_argument('nome')
+    a = m.add_parser('status', help='dev/features.json e dev/progress.md do mod'); a.add_argument('nome')
 
     a = sp.add_parser('check', help='confere arquivos'); a.add_argument('arquivos', nargs='+')
 
@@ -102,7 +102,7 @@ def main(argv=None):
     elif o.cmd == 'mark': _p({'error_log': logs.mark(), 'dll_log': c.size()})
     elif o.cmd == 'mod':
         if o.sub == 'new': _p(mods.new(o.nome, o.titulo, o.prefixo, o.resumo, o.plugin, o.config))
-        elif o.sub == 'adopt': _p(mods.adopt(o.nome, o.repo, o.prefixo))
+        elif o.sub == 'init': _p(mods.init(o.nome, o.prefixo, o.repo) or 'nada a acrescentar')
         elif o.sub == 'package': _p(mods.package(o.nome, o.tag))
         elif o.sub == 'link': _p(mods.link(o.nome))
         elif o.sub == 'enable': _p(mods.enable(o.nome, True))

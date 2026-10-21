@@ -1,6 +1,6 @@
 ---
 name: testar-em-jogo
-description: Testar mod no CK3 aberto - save, efeitos, valores, triggers, error.log; registra evidencia no funcionalidades.json. Usar apos qualquer mudanca de mod.
+description: Testar mod no CK3 aberto - save, efeitos, valores, triggers, error.log; registra evidencia no dev/features.json. Usar apos qualquer mudanca de mod.
 ---
 
 # Testar em jogo
@@ -26,8 +26,8 @@ Ler antes as regras do CLAUDE.md ("Regras do jogo e da DLL").
    ter funcionado.
 
 ## Registrar e relatar
-1. `mods/<nome>/funcionalidades.json`: cada funcionalidade testada vira `feito` com `evidencia` = data, comando e resultado
-   (ex.: "2026-10-21 ck3ctl eval gold: 150 -> 250; errors --mod: nenhum"), ou `bloqueado` com o motivo. O hook
-   recusa `feito` sem evidencia ou com dependencia nao feita.
-2. Reescrever `mods/<nome>/progresso.md`: estado atual, proximo passo, save de teste usado.
+1. `dev/features.json` do repo do mod: cada feature testada vira `done` com `evidence` = data, comando e resultado,
+   em ingles (ex.: "2026-10-21 ck3ctl eval gold: 150 -> 250; error.log: nothing from mm"), ou `blocked` com o motivo.
+   O hook recusa `done` sem evidence ou com dependencia que nao esta `done`.
+2. Reescrever `dev/progress.md` (em ingles): estado atual, proximo passo, save de teste usado.
 3. Ao usuario: tabela curta (testado, esperado, obtido, erros novos). Se algo falhou, seguir com a skill `debugar`.

@@ -138,39 +138,39 @@ def mods_config(p):
     return errs
 
 
-STATUS = ('pendente', 'em_andamento', 'feito', 'bloqueado')
+STATUS = ('todo', 'in_progress', 'done', 'blocked')
 
 
 def features(p):
-    """funcionalidades.json do mod: ids unicos, dependencias existentes, uma em andamento, feito so com evidencia."""
+    """dev/features.json do mod: ids unicos, dependencias existentes, uma in_progress, done so com evidencia."""
     try:
-        fs = json.load(open(p, encoding='utf-8-sig')).get('funcionalidades')
+        fs = json.load(open(p, encoding='utf-8-sig')).get('features')
     except ValueError as e:
         return [(0, 'JSON invalido: %s' % e)]
     if not isinstance(fs, list):
-        return [(0, 'falta a lista "funcionalidades"')]
-    errs, por_id = [], {}
+        return [(0, 'falta a lista "features"')]
+    errs, by_id = [], {}
     for f in fs:
         fid = f.get('id')
-        if not fid or fid in por_id:
+        if not fid or fid in by_id:
             errs.append((0, 'id ausente ou repetido: %r' % fid))
-        por_id[fid] = f
+        by_id[fid] = f
     for f in fs:
         fid, st = f.get('id'), f.get('status')
         if st not in STATUS:
             errs.append((0, '%s: status "%s" (use %s)' % (fid, st, ', '.join(STATUS))))
-        for d in f.get('depende_de', []):
-            if d not in por_id:
-                errs.append((0, '%s: depende de "%s", que nao existe' % (fid, d)))
-            elif st == 'feito' and por_id[d].get('status') != 'feito':
-                errs.append((0, '%s: feito, mas a dependencia %s nao esta feita' % (fid, d)))
-        if not f.get('teste'):
-            errs.append((0, '%s: falta "teste" (comando que confere a funcionalidade)' % fid))
-        if st == 'feito' and not str(f.get('evidencia', '')).strip():
-            errs.append((0, '%s: feito sem evidencia (data, comando rodado e resultado)' % fid))
-    ativas = [f.get('id') for f in fs if f.get('status') == 'em_andamento']
-    if len(ativas) > 1:
-        errs.append((0, 'mais de uma funcionalidade em andamento: %s (uma por vez)' % ', '.join(ativas)))
+        for d in f.get('depends_on', []):
+            if d not in by_id:
+                errs.append((0, '%s: depends_on "%s", que nao existe' % (fid, d)))
+            elif st == 'done' and by_id[d].get('status') != 'done':
+                errs.append((0, '%s: done, mas a dependencia %s nao esta done' % (fid, d)))
+        if not f.get('test'):
+            errs.append((0, '%s: falta "test" (como conferir a feature)' % fid))
+        if st == 'done' and not str(f.get('evidence', '')).strip():
+            errs.append((0, '%s: done sem evidence (data, o que foi rodado e o resultado)' % fid))
+    active = [f.get('id') for f in fs if f.get('status') == 'in_progress']
+    if len(active) > 1:
+        errs.append((0, 'mais de uma feature in_progress: %s (uma por vez)' % ', '.join(active)))
     return errs
 
 
@@ -197,7 +197,7 @@ def check_file(p):
     p = os.path.abspath(p)
     norm = p.replace('\\', '/')
     fn = os.path.basename(p)
-    if fn == 'funcionalidades.json':
+    if fn == 'features.json' and '/dev/' in norm:
         return features(p)
     if fn == 'descriptor.mod' or fn.endswith('.mod'):
         return descriptor(p)
@@ -216,7 +216,8 @@ def check_file(p):
 
 def check_mod(mod_path):
     res = {}
-    for dp, _, fns in os.walk(mod_path):
+    for dp, dns, fns in os.walk(mod_path):
+        dns[:] = [d for d in dns if not d.startswith('.') and d != 'dist']   # .git, .github, zips
         for fn in fns:
             p = os.path.join(dp, fn)
             e = check_file(p)

@@ -15,7 +15,6 @@ TINYCC = os.path.normpath(os.environ.get('CK3_TINYCC', os.path.join(os.path.expa
 
 DLL_SRC = os.path.join(REPO, 'dll')
 DLL_BUILD = os.path.join(DLL_SRC, 'build')
-MODS = os.path.join(REPO, 'mods')            # estado do harness por mod (o repo do mod fica em MOD_DIR)
 TEMPLATES = os.path.join(REPO, 'templates')
 REFERENCE = os.path.join(REPO, 'reference')
 

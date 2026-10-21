@@ -12,7 +12,7 @@ C = client.Ck3()
 @mcp.tool()
 def ck3_doctor() -> str:
     """Inicio de sessao: versao do jogo, DLL instalada x build, referencia, jogo/DLL respondendo, mods e o resumo das
-    funcionalidades de cada um. Rodar antes de trabalhar."""
+    features de cada um (dev/features.json). Rodar antes de trabalhar."""
     return doctor.fmt(doctor.run())
 
 
@@ -111,15 +111,16 @@ def ck3_mark() -> dict:
 def ck3_mod(acao: str, nome: str = '', titulo: str = '', prefixo: str = '', resumo: str = '', repo: str = '',
             plugin: bool = False, config_mods: bool = False) -> str:
     """acao: 'list' | 'new' (repo git do mod em Documents/.../mod/<nome>, padrao guardian_calc_assistant, + estado
-    em mods/<nome>; prefixo curto ex. 'tnt_ga'; resumo em ingles) | 'adopt' (registra mod existente; repo opcional)
+    autossuficiente com dev/ e CLAUDE.md; prefixo curto ex. 'tnt_ga'; resumo em ingles) | 'init' (acrescenta
+    ck3mod.toml, CLAUDE.md e dev/ a um mod existente, sem sobrescrever; prefixo obrigatorio)
     | 'package' (zip pelo pipeline compartilhado) | 'link' (arquivo .mod do launcher) | 'enable' | 'disable' (dlc_load.json, vale ao reabrir) | 'check' (validacao) | 'status'
-    (funcionalidades.json + progresso.md: ler ao comecar a trabalhar no mod).
+    (dev/features.json + dev/progress.md do repo do mod: ler ao comecar).
     plugin (plugin C) e config_mods (aba Mods) sao a ULTIMA OPCAO: fazem o mod exigir a DLL no jogador. Deixar False,
     salvo quando o script comprovadamente nao alcanca e o usuario aprovou (CLAUDE.md, "Regra principal")."""
     if acao == 'new':
         return mods.new(nome, titulo or nome, prefixo or None, resumo, plugin, config_mods)
-    if acao == 'adopt':
-        return mods.adopt(nome, repo or None, prefixo or None)
+    if acao == 'init':
+        return str(mods.init(nome, prefixo, repo or None) or 'nada a acrescentar')
     if acao == 'package':
         return mods.package(nome)
     if acao == 'link':

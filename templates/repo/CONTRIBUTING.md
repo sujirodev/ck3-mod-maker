@@ -18,4 +18,6 @@ Use the terms the game itself uses in your language, so the mod reads like part 
 
 ## Code
 
-Test with `-debug_mode` and check `logs/error.log` before opening a pull request.
+Start with `dev/progress.md` (current state) and `dev/features.json` (features, how to test each one, evidence);
+`CLAUDE.md` has the working rules. Test with `-debug_mode` and check `logs/error.log` before opening a pull request,
+and record what you checked as the feature's `evidence`.
