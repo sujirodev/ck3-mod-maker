@@ -17,5 +17,8 @@ pelo `release.yml` do mod. A tag `vX.Y.Z` publica o GitHub Release e, se configu
 5. Mod com plugin C ou aba Mods: a pagina precisa dizer que exige a DLL `ck3_custom` e a versao exata do jogo, e o
    mod deve falhar de forma visivel e segura sem a DLL (ex.: aviso `ar_aviso_sem_dll` do Auto Raid).
 6. Texto da pagina: `README.md`, `docs/nexus_summary.txt` (ate 350 letras) e `docs/nexus_description.bbcode`.
-7. Mostrar ao usuario versao, changelog e lista do zip. Commit, `git tag vX.Y.Z` e `git push origin main vX.Y.Z` so
+7. Primeira release do mod: acrescentar uma linha na tabela "Mods feitos com o ck3-mod-maker" do README do
+   ck3-mod-maker (nome com link para o repo e o que faz em uma frase), e conferir que o README do mod tem a linha
+   "Built with ck3-mod-maker".
+8. Mostrar ao usuario versao, changelog e lista do zip. Commit, `git tag vX.Y.Z` e `git push origin main vX.Y.Z` so
    depois do ok dele (acao externa). Depois, conferir o run do workflow (`gh run list` / `gh run view`).

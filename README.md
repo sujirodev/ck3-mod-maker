@@ -30,6 +30,11 @@ dela (plugin C ou aba Mods) e a ultima opcao, so quando o script nao alcanca, co
   subagentes e hook de validacao. O estado de cada mod (features com evidencia, progresso, decisoes) mora no repo
   do proprio mod, em `dev/`, junto de um `CLAUDE.md`: quem clona o mod contribui sem precisar deste repo.
 
+## Mods feitos com o ck3-mod-maker
+| Mod | O que faz |
+|---|---|
+| [Guardian Calculation Assistant](https://github.com/sujirodev/ck3-guardian-calc-assistant) | Pontua cada candidato a guardiao com a chance real de progresso de educacao. O padrao de repo e o pipeline de release daqui sairam dele |
+
 ## Usar o pipeline num mod
 `.github/workflows/release.yml` do mod:
 ```yaml

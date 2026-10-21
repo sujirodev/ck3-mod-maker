@@ -2,6 +2,8 @@
 
 A mod for **Crusader Kings III** that {{resumo}}.
 
+Built with [ck3-mod-maker](https://github.com/{{pipeline_repo}}), a study project for agent-driven CK3 modding.
+
 ## Features
 
 - (one bullet per player-visible feature; screenshots in `docs/images/`)
