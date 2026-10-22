@@ -1,7 +1,7 @@
 [project]
 name = "ck3ctl"
 version = "0.1.0"
-description = "Ferramentas agenticas para criar mods de Crusader Kings III com a DLL ck3_custom"
+description = "Agent-driven tooling for Crusader Kings III modding with the ck3_custom DLL"
 requires-python = ">=3.12"
 dependencies = ["mcp>=2.3,<3"]
 

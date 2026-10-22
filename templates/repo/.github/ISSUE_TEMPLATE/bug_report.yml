@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in {{titulo}} does not work.
+description: Something in {{title}} does not work.
 title: "[Bug] "
 labels: ["bug"]
 body:
@@ -15,7 +15,7 @@ body:
     attributes:
       label: Versions
       description: Game version and mod version.
-      placeholder: "CK3 1.19.0, {{titulo}} {{versao}}"
+      placeholder: "CK3 1.19.0, {{title}} {{version}}"
     validations:
       required: true
   - type: textarea
@@ -27,5 +27,5 @@ body:
     id: log
     attributes:
       label: error.log lines
-      description: Lines mentioning {{prefixo}} from Documents/Paradox Interactive/Crusader Kings III/logs/error.log.
+      description: Lines mentioning {{prefix}} from Documents/Paradox Interactive/Crusader Kings III/logs/error.log.
       render: text

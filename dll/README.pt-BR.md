@@ -1,3 +1,5 @@
+Versao em ingles: [README.md](README.md)
+
 # ck3_custom: DLL generica de plugins de mod
 
 Fonte movida do mod Auto Raid para o ck3-mod-maker em 2026-10-21. O Auto Raid continua sendo o primeiro mod que a usa
@@ -17,8 +19,8 @@ docs/dll/arquitetura_dll.md.
 | `gen_exports.py` | Gera `exports.h` e `proxy.def` a partir da DLL do sistema | - |
 
 ## Compilar (na pasta `dll`, com o GCC do WinLibs no PATH)
-Pelo repo: `uv run ck3ctl dll build [carregador|nucleo|todas]` (saida em `dll/build/`) e
-`uv run ck3ctl dll install [nucleo|carregador|todas]`. A mao:
+Pelo repo: `uv run ck3ctl dll build [loader|core|all]` (saida em `dll/build/`) e
+`uv run ck3ctl dll install [core|loader|all]`. A mao:
 ```
 python gen_exports.py winmm
 gcc -shared -O2 -Wall -Wno-format-truncation -static -o winmm.dll ar_proxy.c proxy.def
@@ -78,7 +80,7 @@ Mods > Auto Raid > "Ligado" (`auto_raid_ligado`, padrao desligado); nao ha decis
 | `var <tipo> <id> <nome> [set <valor> [dias] \| del]` | Le (tipo, valor, prazo) ou muda uma variavel de script no objeto do escopo (tipo 4 personagem, 8 provincia, 0x1b exercito) |
 | `expr <texto>` / `ctxprova <tipo> <id> <texto>` | Provas A3 e SIM2b: o jogo le a expressao de script; o nucleo a avalia no proximo `ck3_custom_ping` (no exercito / no escopo dado, com o contexto daquele efeito) |
 | `console <texto>` | Poe o texto na fila do console do jogo, como se fosse digitado (ex.: `console effect ...`) |
-| `cmdlog on|all|off` | Grava todo comando enviado pela thread principal (nome da classe e bytes); `all`: de todas as threads, classes de exercito (Move, Halt, Raid, Loot, Unit, Army...) com a thread e a marcha inteira (0x168 e o caminho), demais classes so pelo nome ||all|off` | Grava todo comando enviado pela thread principal (nome da classe e bytes), para descobrir os outros comandos; `all`: de todas as threads, so classes de exercito (Move, Halt, Raid, Loot, Unit, Army...), com a thread |\|off` | Grava todo comando enviado pela thread principal (nome da classe e bytes), para descobrir os outros comandos |
+| `cmdlog on\|all\|off` | Grava todo comando enviado pela thread principal (nome da classe e bytes); `all`: de todas as threads, classes de exercito (Move, Halt, Raid, Loot, Unit, Army...) com a thread e a marcha inteira (0x168 e o caminho), demais classes so pelo nome |
 | `state` | Estado de pausa (jogador, evento/mensagem, outra) e velocidade |
 | `events [dump \| answer [opcao]]` | Lista os eventos pendentes do jogador; `answer` responde todos (padrao: primeira opcao) e fecha a tela de sucessao |
 | `salvar` | Salva a partida (grava `autosave.ck3`, girando os autosaves anteriores) |

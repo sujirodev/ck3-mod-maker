@@ -1,39 +1,41 @@
-# Comandos de exercito (formatos)
+Portuguese version: [notas_comandos.pt-BR.md](notas_comandos.pt-BR.md)
 
-Capturados em jogo em 2026-10-04 com o registro de comandos da DLL (`cmdlog on`) e reenviados pela DLL com
-sucesso. `ck3.exe` 1.19.0.6, enderecos em RVA. Log: `docs/re/sessao_log_2026-10-04.txt`.
+# Army commands (formats)
 
-## Envio
-- Funcao externa `Post(despachante, comando*, flags)` em 0x973e00: clona o comando e chama a interna.
-- Funcao interna `(despachante, unique_ptr<comando>*, flags)` em 0x341d8e0: por aqui passam TODOS os comandos
-  (225 pontos do jogo a chamam direto). O registro geral de comandos fica nela.
-- Flags do jogador: 0xE. Pausa usa 7.
+Captured in game on 2026-10-04 with the DLL's command log (`cmdlog on`) and resent by the DLL
+successfully. `ck3.exe` 1.19.0.6, addresses as RVAs. Log: `docs/re/sessao_log_2026-10-04.txt`.
 
-## Cabecalho comum
-| Offset | Conteudo |
+## Sending
+- External function `Post(despachante, comando*, flags)` at 0x973e00: clones the command and calls the internal one.
+- Internal function `(despachante, unique_ptr<comando>*, flags)` at 0x341d8e0: ALL commands go through here
+  (225 places in the game call it directly). The general command log lives in it.
+- Player flags: 0xE. Pause uses 7.
+
+## Common header
+| Offset | Content |
 |---|---|
-| 0x00 | vtable principal |
-| 0x08 a 0x17 | estado (zerado no envio) |
-| 0x18 | vtable secundaria |
-| 0x20 em diante | campos do comando |
+| 0x00 | main vtable |
+| 0x08 to 0x17 | state (zeroed on send) |
+| 0x18 | secondary vtable |
+| 0x20 onwards | command fields |
 
-## Comandos
-| Comando | Vtable / secundaria | Campos (a partir de 0x20) | Testado pela DLL |
+## Commands
+| Command | Vtable / secondary | Fields (from 0x20) | Tested from the DLL |
 |---|---|---|---|
-| `CMoveUnitCommand` | 0x432bef0 / 0x432bf88 | +0x20 valid_for (1 jogador), +0x24 unidade, +0x28 provincia, +0x2C tipo de ordem (0 substitui, 1 fila), +0x30 = 2, +0x34 = 1, +0x38 lista de caminho (construtor 0xc7ba80), +0x160 custo | Sim |
-| `CToggleRaidingCommand` | 0x432C7E8 / 0x432C628 | +0x20 = 1, +0x24 personagem do jogador, +0x28 id do exercito | Sim (usuario viu o exercito mudar de modo) |
-| `CSplitHalfArmyCommand` | 0x432D408 / 0x432D4A0 | +0x20 = 1, +0x24 personagem do jogador, +0x28 id do exercito | Sim (1 unidade virou 2) |
-| `CMergeUnitsCommand` | 0x432D1E0 / 0x432D1B0 | +0x20 = 1, +0x24 unidade destino, +0x28 vetor de ids de unidade {dados, quantidade, capacidade, alocador 0x4FEADE0} | Sim (2 unidades viraram 1) |
-| `CDisbandArmyCommand` | 0x432D340 / 0x432D3D8 | +0x20 = 1, +0x24 id do exercito | Sim |
-| `CRaiseTroopsCommand` | 0x4122750 / 0x4122720 | +0x20 personagem, +0x28 vetor de pontos de reuniao {dados, quantidade, capacidade, alocador 0x4FEBA40}, cada ponto = {provincia u32, cor u32}; +0x40 = -1; +0x48 tipo de exercito (1 no levantamento como raid) | Sim (exercito levantado na provincia pedida, como raid) |
-| `CToggleLootingCommand` | 0x432c750 / 0x432c720 | +0x20 = 1, +0x24 personagem do jogador, +0x28 id do exercito. Alterna o byte `[exercito+0x1d5]` (saquear ao parar) | Sim (o byte mudou e o saque comecou) |
-| `CHaltUnitsCommand` | 0x432be58 / 0x432be28 | +0x20 valid_for (1 jogador; a IA usa 2), +0x28 vetor de ids de UNIDADE {dados, quantidade, capacidade, alocador 0x4FEADE0} | Sim (enviado sem recusa; nao interrompe saque) |
-| `CSelectEventOptionCommand` | 0x4335150 / 0x4335120 | +0x20 id da instancia do evento, +0x24 indice da opcao | Sim (evento respondido, pausa removida) |
-| `CPauseGameCommand` | 0x432F300 / 0x432F2D0 | +0x20 = 1, +0x24 estado (1 pausa, 0 despausa) | Sim (confirmado pelo usuario) |
+| `CMoveUnitCommand` | 0x432bef0 / 0x432bf88 | +0x20 valid_for (1 player), +0x24 unit, +0x28 province, +0x2C order type (0 replaces, 1 queue), +0x30 = 2, +0x34 = 1, +0x38 path list (constructor 0xc7ba80), +0x160 cost | Yes |
+| `CToggleRaidingCommand` | 0x432C7E8 / 0x432C628 | +0x20 = 1, +0x24 player character, +0x28 army id | Yes (user saw the army change mode) |
+| `CSplitHalfArmyCommand` | 0x432D408 / 0x432D4A0 | +0x20 = 1, +0x24 player character, +0x28 army id | Yes (1 unit became 2) |
+| `CMergeUnitsCommand` | 0x432D1E0 / 0x432D1B0 | +0x20 = 1, +0x24 destination unit, +0x28 vector of unit ids {data, count, capacity, allocator 0x4FEADE0} | Yes (2 units became 1) |
+| `CDisbandArmyCommand` | 0x432D340 / 0x432D3D8 | +0x20 = 1, +0x24 army id | Yes |
+| `CRaiseTroopsCommand` | 0x4122750 / 0x4122720 | +0x20 character, +0x28 vector of rally points {data, count, capacity, allocator 0x4FEBA40}, each point = {province u32, color u32}; +0x40 = -1; +0x48 army type (1 when raising as raid) | Yes (army raised in the requested province, as raid) |
+| `CToggleLootingCommand` | 0x432c750 / 0x432c720 | +0x20 = 1, +0x24 player character, +0x28 army id. Toggles the byte `[exercito+0x1d5]` (loot when stopped) | Yes (the byte changed and looting started) |
+| `CHaltUnitsCommand` | 0x432be58 / 0x432be28 | +0x20 valid_for (1 player; the AI uses 2), +0x28 vector of UNIT ids {data, count, capacity, allocator 0x4FEADE0} | Yes (sent without rejection; does not interrupt looting) |
+| `CSelectEventOptionCommand` | 0x4335150 / 0x4335120 | +0x20 event instance id, +0x24 option index | Yes (event answered, pause removed) |
+| `CPauseGameCommand` | 0x432F300 / 0x432F2D0 | +0x20 = 1, +0x24 state (1 pause, 0 unpause) | Yes (confirmed by the user) |
 
-Texto do `raise_troops` no `message.log`: `character`, `rally_points={ { province color } }`, `raise_army_type`.
+Text of `raise_troops` in `message.log`: `character`, `rally_points={ { province color } }`, `raise_army_type`.
 
 ## Ids
-- Unidade: ex. 2046820353 (0x7A000001). Indice na tabela = id & 0xFFFFFF.
-- Exercito: ex. 1979711491 (0x76000003). `[unidade+0x178]` da o exercito da unidade.
-- Mover e juntar usam id de UNIDADE; modo raid, dividir e dissolver usam id de EXERCITO.
+- Unit: e.g. 2046820353 (0x7A000001). Index in the table = id & 0xFFFFFF.
+- Army: e.g. 1979711491 (0x76000003). `[unidade+0x178]` gives the unit's army.
+- Move and merge use a UNIT id; raid mode, split and disband use an ARMY id.

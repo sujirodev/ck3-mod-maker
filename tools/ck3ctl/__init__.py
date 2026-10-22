@@ -1,1 +1,1 @@
-from .client import Ck3, SemResposta
+from .client import Ck3, NoAnswer

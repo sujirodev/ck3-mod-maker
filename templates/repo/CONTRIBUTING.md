@@ -6,7 +6,7 @@ Bug reports, translations and pull requests are welcome.
 
 ## Translations
 
-1. Copy `localization/english/{{prefixo}}_l_english.yml` to `localization/<folder>/{{prefixo}}_l_<folder>.yml`
+1. Copy `localization/english/{{prefix}}_l_english.yml` to `localization/<folder>/{{prefix}}_l_<folder>.yml`
    (`french`, `german`, `spanish`, `russian`, `polish`, `simp_chinese`, `korean`, `japanese`).
 2. Change the first line from `l_english:` to `l_<folder>:`.
 3. Translate only the text between the quotes. Keep the keys and everything inside `[...]` exactly as they are.

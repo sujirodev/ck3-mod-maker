@@ -1,3 +1,5 @@
+Versao em ingles: [README.md](README.md)
+
 # Prova do plugin em fonte C (TinyCC), 2026-10-04
 
 Resultados em docs/arquitetura_dll.md, secao 7c.

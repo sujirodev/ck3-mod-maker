@@ -1,4 +1,4 @@
-# Processo do jogo: abrir (opcionalmente continuando um save), fechar e conferir versao.
+# Game process: start (optionally continuing a save), close, check the version.
 import os, re, shutil, subprocess, time
 from . import config
 from .client import Ck3
@@ -10,7 +10,7 @@ def running():
 
 
 def close():
-    """Encerra o processo, sem o autosave de saida."""
+    """Kill the process, without the exit autosave."""
     subprocess.run(['taskkill', '/F', '/IM', 'ck3.exe'], capture_output=True)
     for _ in range(60):
         if not running():
@@ -19,8 +19,8 @@ def close():
     time.sleep(2)
 
 
-def _continuar(save):
-    # o --continuelastsave abre o save cujo titulo esta no continue_game.json
+def _continue_from(save):
+    # --continuelastsave opens the save whose title is in continue_game.json
     cj = os.path.join(config.DOCS, 'continue_game.json')
     if os.path.exists(cj) and not os.path.exists(cj + '.original'):
         shutil.copy(cj, cj + '.original')
@@ -31,14 +31,14 @@ def _continuar(save):
 
 
 def start(save=None, debug=True, nographics=False, wait=True, timeout=600):
-    """Abre o jogo. Com save, continua dele e (wait) espera a partida carregada e pausada."""
+    """Start the game. With a save, continue from it and (wait) block until it is loaded and paused."""
     if running():
-        raise RuntimeError('o jogo ja esta aberto; use load(save) para trocar de save sem reabrir')
+        raise RuntimeError('the game is already open; use load(save) to switch saves without restarting')
     args = [os.path.join(config.BIN, 'ck3.exe')]
     if debug:
         args.append('-debug_mode')
     if save:
-        _continuar(save)
+        _continue_from(save)
         args.append('--continuelastsave')
     if nographics:
         args.append('-nographics')
@@ -48,27 +48,26 @@ def start(save=None, debug=True, nographics=False, wait=True, timeout=600):
     if not (wait and save):
         return None
     t0 = time.time()
-    pediu = False
+    asked = False
     while time.time() - t0 < timeout:
         time.sleep(5)
-        if not pediu and time.time() - t0 > 240:
-            # o jogo pode parar no menu principal sem continuar o save; o pedido carregar resolve
+        if not asked and time.time() - t0 > 240:
+            # the game may stop at the main menu without continuing the save; the `carregar` request fixes it
             try:
-                pediu = 'pedido enviado' in c.req('carregar save games/%s.ck3' % save.removesuffix('.ck3'), 1.0)
+                asked = 'pedido enviado' in c.req('carregar save games/%s.ck3' % save.removesuffix('.ck3'), 1.0)
             except Exception:
                 pass
         try:
             st = c.state()
-            if st['ok'] and st['carregado'] and not st['correndo']:
+            if st['ok'] and st['loaded'] and not st['running']:
                 return st
         except Exception:
             pass
-    raise TimeoutError('partida nao carregou em %d s (log da DLL desde a abertura: %d bytes)'
-                       % (timeout, c.size() - pos))
+    raise TimeoutError('save did not load within %d s (DLL log since start: %d bytes)' % (timeout, c.size() - pos))
 
 
 def version():
-    """Versao do executavel pelo launcher-settings (a DLL so conhece a 1.19.0.6)."""
+    """Executable version from launcher-settings (the DLL only knows 1.19.0.6)."""
     p = os.path.join(config.GAME, 'launcher', 'launcher-settings.json')
     if os.path.exists(p):
         m = re.search(r'"rawVersion":\s*"([^"]+)"', open(p, encoding='utf-8').read())

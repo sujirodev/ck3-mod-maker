@@ -4,6 +4,6 @@ One section per version, newest first. The release workflow publishes the sectio
 
 Each entry is one line starting with `- ` (one changelog line on Nexus Mods).
 
-## [{{versao}}] - {{data}}
+## [{{version}}] - {{date}}
 
 - First release.

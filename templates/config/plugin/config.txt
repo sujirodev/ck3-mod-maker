@@ -1,10 +1,10 @@
-# Opcoes do {{titulo}} na aba Mods das configuracoes do jogo (docs/dll/arquitetura_dll.md, secao 11). Em -debug_mode
-# a aba e refeita quando este arquivo muda.
-# Linhas: liga <chave> <padrao> | inteiro <chave> <padrao> <min> <max> [passo] [formato]
-#         | real <chave> <padrao> <min> <max> <passo> [formato]
-# Nome no jogo = {{nome}}_<chave>; texto = {{nome}}_cfg_<chave> (+ _TOOLTIP) na localizacao.
-mod {{nome}}
-titulo {{nome}}_cfg_titulo
+# {{title}} options in the Mods tab of the game settings (ck3-mod-maker docs/dll/arquitetura_dll.md, section 11).
+# In -debug_mode the tab is rebuilt when this file changes. Keywords are read by the DLL:
+#   liga <key> <default> (toggle) | inteiro <key> <default> <min> <max> [step] [format] (integer)
+#   | real <key> <default> <min> <max> <step> [format] (slider) | mod | titulo (title) | grupo (group)
+# In-game name = {{name}}_<key>; text = {{name}}_cfg_<key> (+ _TOOLTIP) in the localization.
+mod {{name}}
+titulo {{name}}_cfg_titulo
 
-grupo geral {{nome}}_cfg_grupo_geral
+grupo geral {{name}}_cfg_grupo_geral
 liga ligado 1

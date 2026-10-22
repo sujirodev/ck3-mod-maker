@@ -1,42 +1,39 @@
 # ck3-mod-maker
 
-> **Projeto de estudo.** Feito para aprender modding de Crusader Kings III, engenharia reversa e desenvolvimento
-> com agentes de IA (Claude Code). Nao e afiliado nem endossado pela Paradox Interactive. A DLL so roda numa versao
-> exata do jogo (1.19.0.6), le e altera a memoria do processo e serve para uso local e single-player, em
-> `-debug_mode`. Use por sua conta e risco; nada aqui e um produto suportado.
->
+Portuguese version: [README.pt-BR.md](README.pt-BR.md)
+
 > **Study project.** Built to learn Crusader Kings III modding, reverse engineering and AI-agent-driven development
 > (Claude Code). Not affiliated with or endorsed by Paradox Interactive. The DLL only works on one exact game build
 > (1.19.0.6), reads and patches the game process memory, and is meant for local single-player use in `-debug_mode`.
 > Use at your own risk; nothing here is a supported product.
 
-Repositorio para criar mods de CK3 com o Claude Code de forma agentica: o Claude escreve o mod, abre o jogo, roda
-efeitos, le valores e logs e corrige sozinho, pela DLL `ck3_custom`.
+A repository for making CK3 mods with Claude Code in an agent-driven way: Claude writes the mod, starts the game,
+runs effects, reads values and logs and fixes things on its own, through the `ck3_custom` DLL.
 
-Os mods sao feitos em script do jogo. A DLL e ferramenta de desenvolvimento (teste e depuracao); um mod que depende
-dela (plugin C ou aba Mods) e a ultima opcao, so quando o script nao alcanca, como no Auto Raid.
+Mods are written in game script. The DLL is a development tool (testing and debugging); a mod that depends on it
+(C plugin or Mods tab) is the last resort, only when script cannot do the job, as in Auto Raid.
 
-## Pecas
-- **DLL `ck3_custom`** (`dll/`): carregador `winmm.dll` + nucleo `ck3_custom_core.dll`. Canal de pedidos com o jogo
-  aberto, efeitos de script novos em C (plugins compilados com TinyCC dentro do jogo), aba Mods nas configuracoes.
-  Notas de engenharia reversa em `docs/dll/`. Binarios nao sao publicados: compile a partir da fonte.
-- **`ck3ctl`** (`tools/ck3ctl/`): biblioteca, CLI e servidor MCP `ck3`.
-- **Pipeline de release compartilhado** (`pipeline/`, `.github/workflows/mod-release.yml`): cada mod tem um
-  `release.yml` de poucas linhas que chama este workflow numa tag fixa; zip reproduzivel, notas do `CHANGELOG.md`,
-  GitHub Release e Nexus Mods opcional.
-- **Modelo de repo de mod** (`templates/repo`): um mod = um repo git, no padrao do
+## Parts
+- **`ck3_custom` DLL** (`dll/`): loader `winmm.dll` + core `ck3_custom_core.dll`. Request channel into the running
+  game, new script effects written in C (plugins compiled with TinyCC inside the game), a Mods tab in the settings.
+  Reverse-engineering notes in `docs/dll/`. Binaries are not published: build from source.
+- **`ck3ctl`** (`tools/ck3ctl/`): library, CLI and the `ck3` MCP server.
+- **Shared release pipeline** (`pipeline/`, `.github/workflows/mod-release.yml`): each mod has a few-line
+  `release.yml` that calls this workflow at a fixed tag; reproducible zip, notes from `CHANGELOG.md`, GitHub Release
+  and optional Nexus Mods upload.
+- **Mod repository template** (`templates/repo`): one mod = one git repo, following the
   [Guardian Calculation Assistant](https://github.com/sujirodev/ck3-guardian-calc-assistant).
-- **Harness** (`.claude/`): skills (`novo-mod`, `testar-em-jogo`, `debugar`, `novo-plugin-c`, `publicar`),
-  subagentes e hook de validacao. O estado de cada mod (features com evidencia, progresso, decisoes) mora no repo
-  do proprio mod, em `dev/`, junto de um `CLAUDE.md`: quem clona o mod contribui sem precisar deste repo.
+- **Harness** (`.claude/`): skills (`new-mod`, `test-in-game`, `debug-mod`, `c-plugin`, `release-mod`),
+  subagents and a validation hook. Each mod's state (features with evidence, progress, decisions) lives in the mod's
+  own repo, in `dev/`, next to a `CLAUDE.md`: whoever clones the mod can contribute without this repo.
 
-## Mods feitos com o ck3-mod-maker
-| Mod | O que faz |
+## Mods built with ck3-mod-maker
+| Mod | What it does |
 |---|---|
-| [Guardian Calculation Assistant](https://github.com/sujirodev/ck3-guardian-calc-assistant) | Pontua cada candidato a guardiao com a chance real de progresso de educacao. O padrao de repo e o pipeline de release daqui sairam dele |
+| [Guardian Calculation Assistant](https://github.com/sujirodev/ck3-guardian-calc-assistant) | Scores every guardian candidate with the real chance of education progress. This repo's mod template and release pipeline came from it |
 
-## Usar o pipeline num mod
-`.github/workflows/release.yml` do mod:
+## Using the pipeline in a mod
+The mod's `.github/workflows/release.yml`:
 ```yaml
 on: { push: { branches: [main], tags: ["v*"] }, pull_request: {}, workflow_dispatch: {} }
 permissions: { contents: write }
@@ -46,38 +43,38 @@ jobs:
     with:
       pipeline_ref: v1
 ```
-e `ck3mod.toml` na raiz:
+and `ck3mod.toml` at the root:
 ```toml
 [mod]
 dir = "my_mod"
 title = "My Mod"
 ```
-Detalhes (Nexus Mods, `include`) no cabecalho de `.github/workflows/mod-release.yml` e em `templates/repo/README.md`.
+Details (Nexus Mods, `include`) in the header of `.github/workflows/mod-release.yml` and in
+`templates/repo/README.md`.
 
-## Preparar a maquina
+## Machine setup
 ```
 uv sync
-uv run ck3ctl dll build          # GCC (WinLibs) e TinyCC em ~/src/tinycc (dll/LEIAME.md)
-uv run ck3ctl dll install todas  # com o jogo fechado
-uv run ck3ctl ref build          # indice do script_docs (rodar `script_docs` no console uma vez antes)
+uv run ck3ctl dll build          # GCC (WinLibs) and TinyCC in ~/src/tinycc (dll/README.md)
+uv run ck3ctl dll install all    # with the game closed
+uv run ck3ctl ref build          # script_docs index (run `script_docs` in the game console once first)
 uv run ck3ctl doctor
 ```
-Caminhos em `tools/ck3ctl/config.py` (variaveis `CK3_GAME`, `CK3_DOCS`, `CK3_TINYCC`, `CK3_AUTHOR`).
+Paths in `tools/ck3ctl/config.py` (variables `CK3_GAME`, `CK3_DOCS`, `CK3_TINYCC`, `CK3_AUTHOR`).
 
-## Uso rapido (CLI)
+## Quick use (CLI)
 ```
-uv run ck3ctl mod new meu_mod "My Mod" --prefixo mm --resumo "does something"
-uv run ck3ctl mod check meu_mod
-uv run ck3ctl mod enable meu_mod
-uv run ck3ctl game start teste_meu_mod
+uv run ck3ctl mod new my_mod "My Mod" --prefix mm --summary "does something"
+uv run ck3ctl mod check my_mod
+uv run ck3ctl mod enable my_mod
+uv run ck3ctl game start test_my_mod
 uv run ck3ctl effect "trigger_event = mm.0001"
 uv run ck3ctl eval gold
-uv run ck3ctl errors --mod meu_mod
-uv run ck3ctl mod package meu_mod
+uv run ck3ctl errors --mod my_mod
+uv run ck3ctl mod package my_mod
 ```
-No Claude Code as mesmas operacoes aparecem como ferramentas `mcp__ck3__*`.
+In Claude Code the same operations show up as `mcp__ck3__*` tools.
 
-## Licenca
-[MIT](LICENSE) para o codigo e os textos deste repositorio. O nucleo da DLL embute o TinyCC (LGPL) ao ser compilado;
-o TinyCC nao e distribuido aqui. Crusader Kings III e marca da Paradox Interactive AB; nenhum arquivo do jogo e
-distribuido aqui.
+## License
+[MIT](LICENSE) for the code and text in this repository. The DLL core embeds TinyCC (LGPL) when built; TinyCC is not
+distributed here. Crusader Kings III is a trademark of Paradox Interactive AB; no game files are distributed here.

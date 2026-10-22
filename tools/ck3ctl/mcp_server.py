@@ -1,162 +1,164 @@
-# Servidor MCP: as mesmas operacoes do ck3ctl como ferramentas para o Claude (registrado em .mcp.json).
+# MCP server: the same ck3ctl operations as tools for Claude (registered in .mcp.json).
 from mcp.server.mcpserver import MCPServer
 from . import client, doctor, dll, game, logs, mods, reference, validate
 
 mcp = MCPServer('ck3', instructions=(
-    'Controle do Crusader Kings III 1.19.0.6 aberto com -debug_mode e a DLL ck3_custom. Antes de qualquer efeito, '
-    'confira ck3_state: com "carregado" falso (carga em curso) um efeito derruba o jogo. Pedidos ate 500 letras; '
-    'efeito maior vai para um scripted_effect do mod. Leia CLAUDE.md e dll/LEIAME.md.'))
+    'Controls Crusader Kings III 1.19.0.6 running with -debug_mode and the ck3_custom DLL. Before any effect, check '
+    'ck3_state: with "loaded" false (a save is loading) an effect crashes the game. Requests up to 500 characters; '
+    'a longer effect goes into a scripted_effect in the mod. Read CLAUDE.md and dll/README.md.'))
 C = client.Ck3()
 
 
 @mcp.tool()
 def ck3_doctor() -> str:
-    """Inicio de sessao: versao do jogo, DLL instalada x build, referencia, jogo/DLL respondendo, mods e o resumo das
-    features de cada um (dev/features.json). Rodar antes de trabalhar."""
+    """Session start: game version, installed DLL vs source, reference index, game/DLL answering, mods and each
+    mod's feature summary (dev/features.json). Run before working."""
     return doctor.fmt(doctor.run())
 
 
 @mcp.tool()
 def ck3_state() -> dict:
-    """Pausa, velocidade e se ha partida carregada (velocidade 0 = sem partida ou carregando)."""
+    """Pause, speed and whether a save is loaded (speed 0 = no save or loading)."""
     return C.state()
 
 
 @mcp.tool()
-def ck3_game(acao: str, save: str = '', nographics: bool = False) -> str:
-    """acao: 'status' | 'start' (abre em -debug_mode; com save, continua dele e espera carregar) | 'close'."""
-    if acao == 'start':
+def ck3_game(action: str, save: str = '', nographics: bool = False) -> str:
+    """action: 'status' | 'start' (starts in -debug_mode; with a save, continues from it and waits for the load) |
+    'close'."""
+    if action == 'start':
         return str(game.start(save or None, nographics=nographics))
-    if acao == 'close':
+    if action == 'close':
         game.close()
-        return 'fechado'
-    return str({'aberto': game.running(), 'dll_responde': game.running() and C.alive(), 'versao': game.version()})
+        return 'closed'
+    return str({'open': game.running(), 'dll_answers': game.running() and C.alive(), 'version': game.version()})
 
 
 @mcp.tool()
-def ck3_pause(pausar: bool = True) -> bool:
-    """Pausa ou despausa (confere pelo state)."""
-    return C.pause(pausar)
+def ck3_pause(pause: bool = True) -> bool:
+    """Pause or unpause (checked through the state)."""
+    return C.pause(pause)
 
 
 @mcp.tool()
-def ck3_speed(velocidade: int = 5) -> str:
-    """Velocidade do jogo 1..5."""
-    return C.speed(velocidade)
+def ck3_speed(speed: int = 5) -> str:
+    """Game speed 1..5."""
+    return C.speed(speed)
 
 
 @mcp.tool()
-def ck3_effect(texto: str) -> dict:
-    """Roda um efeito de script no personagem do jogador (root). Ex.: 'add_gold = 100',
-    'character:123 = { add_trait = brave }'. Devolve ok e a mensagem do jogo."""
-    ok, msg, _ = C.effect(texto)
-    return {'ok': ok, 'mensagem': msg}
+def ck3_effect(text: str) -> dict:
+    """Run a script effect on the player character (root). E.g. 'add_gold = 100',
+    'character:123 = { add_trait = brave }'. Returns ok and the game's message."""
+    ok, msg, _ = C.effect(text)
+    return {'ok': ok, 'message': msg}
 
 
 @mcp.tool()
-def ck3_eval(valor: str, escopo: str = '') -> float:
-    """Valor de script no jogador ou no escopo (ex.: valor='gold', escopo='character:123'; valor='var:minha_var')."""
-    return C.eval(valor, escopo or None)
+def ck3_eval(value: str, scope: str = '') -> float:
+    """Script value on the player or on a scope (e.g. value='gold', scope='character:123'; value='var:my_var')."""
+    return C.eval(value, scope or None)
 
 
 @mcp.tool()
-def ck3_trigger(texto: str, escopo: str = '') -> bool:
-    """Testa um trigger no jogador ou no escopo. Ex.: 'is_at_war = yes', 'has_trait = brave'."""
-    return C.trigger(texto, escopo or None)
+def ck3_trigger(text: str, scope: str = '') -> bool:
+    """Test a trigger on the player or on a scope. E.g. 'is_at_war = yes', 'has_trait = brave'."""
+    return C.trigger(text, scope or None)
 
 
 @mcp.tool()
-def ck3_request(linha: str, espera: float = 0.5) -> str:
-    """Pedido cru a DLL (lista em dll/LEIAME.md: info, units, where, var, events, peek, cmdlog, cfg, mods...)."""
-    return C.req(linha, espera)
+def ck3_request(line: str, wait: float = 0.5) -> str:
+    """Raw request to the DLL (list in dll/README.md: info, units, where, var, events, peek, cmdlog, cfg, mods...)."""
+    return C.req(line, wait)
 
 
 @mcp.tool()
-def ck3_dll_log(linhas: int = 40) -> str:
-    """Fim do log da DLL (ck3_custom_dll.log): respostas, log dos plugins, FALHA CONTIDA."""
-    return C.tail(linhas)
+def ck3_dll_log(lines: int = 40) -> str:
+    """End of the DLL log (ck3_custom_dll.log): answers, plugin logs, FALHA CONTIDA (contained faults)."""
+    return C.tail(lines)
 
 
 @mcp.tool()
-def ck3_events(responder: bool = False, opcao: int = 0) -> str:
-    """Eventos pendentes do jogador; responder=True responde todos (opcao 0 = primeira) e fecha sucessao."""
-    return C.events(responder, opcao)
+def ck3_events(answer: bool = False, option: int = 0) -> str:
+    """The player's pending events; answer=True answers all of them (option 0 = first) and closes succession."""
+    return C.events(answer, option)
 
 
 @mcp.tool()
-def ck3_save_load(acao: str, save: str = '') -> str:
-    """acao 'save' (grava autosave.ck3) ou 'load' (recarrega save games/<save>.ck3 com o jogo aberto, ~15 s)."""
-    return C.save() if acao == 'save' else str(C.load(save))
+def ck3_save_load(action: str, save: str = '') -> str:
+    """action 'save' (writes autosave.ck3) or 'load' (reloads save games/<save>.ck3 with the game open, ~15 s)."""
+    return C.save() if action == 'save' else str(C.load(save))
 
 
 @mcp.tool()
-def ck3_plugin(recompilar: bool = False) -> str:
-    """Plugins C achados nos mods ativos e se carregaram; recompilar=True compila de novo (erros com linha)."""
-    return C.plugins(recompilar)
+def ck3_plugin(recompile: bool = False) -> str:
+    """C plugins found in the enabled mods and whether they loaded; recompile=True compiles again (errors with line)."""
+    return C.plugins(recompile)
 
 
 @mcp.tool()
-def ck3_errors(mod: str = '', desde: int = 0, todos: bool = False) -> str:
-    """Erros do error.log do jogo, agrupados. mod: so os que citam arquivos de mods/<mod>. desde: posicao de ck3_mark."""
-    return logs.fmt(logs.errors(None if todos or not mod else mods.path(mod), desde)) or 'nenhum erro'
+def ck3_errors(mod: str = '', since: int = 0, all: bool = False) -> str:
+    """The game's error.log, grouped. mod: only errors citing that mod's files. since: position from ck3_mark."""
+    return logs.fmt(logs.errors(None if all or not mod else mods.path(mod), since)) or 'no errors'
 
 
 @mcp.tool()
 def ck3_mark() -> dict:
-    """Posicoes atuais do error.log e do log da DLL, para ler so o que vier depois de uma acao."""
+    """Current positions of error.log and of the DLL log, to read only what comes after an action."""
     return {'error_log': logs.mark(), 'dll_log': C.size()}
 
 
 @mcp.tool()
-def ck3_mod(acao: str, nome: str = '', titulo: str = '', prefixo: str = '', resumo: str = '', repo: str = '',
+def ck3_mod(action: str, name: str = '', title: str = '', prefix: str = '', summary: str = '', repo: str = '',
             plugin: bool = False, config_mods: bool = False) -> str:
-    """acao: 'list' | 'new' (repo git do mod em Documents/.../mod/<nome>, padrao guardian_calc_assistant, + estado
-    autossuficiente com dev/ e CLAUDE.md; prefixo curto ex. 'tnt_ga'; resumo em ingles) | 'init' (acrescenta
-    ck3mod.toml, CLAUDE.md e dev/ a um mod existente, sem sobrescrever; prefixo obrigatorio)
-    | 'package' (zip pelo pipeline compartilhado) | 'link' (arquivo .mod do launcher) | 'enable' | 'disable' (dlc_load.json, vale ao reabrir) | 'check' (validacao) | 'status'
-    (dev/features.json + dev/progress.md do repo do mod: ler ao comecar).
-    plugin (plugin C) e config_mods (aba Mods) sao a ULTIMA OPCAO: fazem o mod exigir a DLL no jogador. Deixar False,
-    salvo quando o script comprovadamente nao alcanca e o usuario aprovou (CLAUDE.md, "Regra principal")."""
-    if acao == 'new':
-        return mods.new(nome, titulo or nome, prefixo or None, resumo, plugin, config_mods)
-    if acao == 'init':
-        return str(mods.init(nome, prefixo, repo or None) or 'nada a acrescentar')
-    if acao == 'package':
-        return mods.package(nome)
-    if acao == 'link':
-        return mods.link(nome)
-    if acao in ('enable', 'disable'):
-        return str(mods.enable(nome, acao == 'enable'))
-    if acao == 'status':
-        return mods.status(nome)
-    if acao == 'check':
-        return str({'arquivos': validate.check_mod(mods.path(nome)), 'localizacao_faltando': validate.missing_loc(mods.path(nome))})
+    """action: 'list' | 'new' (self-contained mod git repo in Documents/.../mod/<name>, guardian_calc_assistant
+    pattern, with dev/ and CLAUDE.md; short prefix e.g. 'tnt_ga'; one-line summary) | 'init' (adds ck3mod.toml,
+    CLAUDE.md and dev/ to an existing mod, never overwriting; prefix required) | 'package' (zip through the shared
+    pipeline) | 'link' (launcher .mod file) | 'enable' | 'disable' (dlc_load.json, applies on restart) | 'check'
+    (validation) | 'status' (the mod's dev/features.json + dev/progress.md: read when starting).
+    plugin (C plugin) and config_mods (Mods tab) are the LAST RESORT: they make the mod require the DLL on the
+    player's machine. Leave them False unless script provably cannot do it and the user approved (CLAUDE.md, "Main
+    rule")."""
+    if action == 'new':
+        return mods.new(name, title or name, prefix or None, summary, plugin, config_mods)
+    if action == 'init':
+        return str(mods.init(name, prefix, repo or None) or 'nothing to add')
+    if action == 'package':
+        return mods.package(name)
+    if action == 'link':
+        return mods.link(name)
+    if action in ('enable', 'disable'):
+        return str(mods.enable(name, action == 'enable'))
+    if action == 'status':
+        return mods.status(name)
+    if action == 'check':
+        return str({'files': validate.check_mod(mods.path(name)), 'missing_localization': validate.missing_loc(mods.path(name))})
     return str(mods.listing())
 
 
 @mcp.tool()
-def ck3_ref(termo: str, tipo: str = '', texto_completo: bool = False, limite: int = 15) -> str:
-    """Documentacao do script_docs: tipo effect | trigger | on_action | event_target | event_scope | modifier |
-    data_type. termo e regex no nome (texto_completo procura tambem na descricao)."""
-    es = reference.lookup(termo, tipo or None, limite, texto_completo)
-    return '\n\n'.join('## [%s] %s\n%s' % (e['kind'], e['name'], e['text']) for e in es) or 'nada'
+def ck3_ref(term: str, kind: str = '', full_text: bool = False, limit: int = 15) -> str:
+    """script_docs reference: kind effect | trigger | on_action | event_target | event_scope | modifier | data_type.
+    term is a regex on the name (full_text also searches the description)."""
+    es = reference.lookup(term, kind or None, limit, full_text)
+    return '\n\n'.join('## [%s] %s\n%s' % (e['kind'], e['name'], e['text']) for e in es) or 'nothing'
 
 
 @mcp.tool()
-def ck3_vanilla(padrao: str, pasta: str = '', limite: int = 40, contexto: int = 0) -> str:
-    """Regex nos arquivos do jogo base (C:/CK3/game). pasta ex.: 'common/scripted_effects', 'events', 'gui'."""
+def ck3_vanilla(pattern: str, folder: str = '', limit: int = 40, context: int = 0) -> str:
+    """Regex over the vanilla game files (C:/CK3/game). folder e.g. 'common/scripted_effects', 'events', 'gui'."""
     return '\n'.join('%s:%d: %s' % (h['file'], h['line'], h['text'])
-                     for h in reference.grep_vanilla(padrao, pasta, limit=limite, context=contexto)) or 'nada'
+                     for h in reference.grep_vanilla(pattern, folder, limit=limit, context=context)) or 'nothing'
 
 
 @mcp.tool()
-def ck3_dll(acao: str = 'status', parte: str = 'nucleo') -> str:
-    """acao 'status' | 'build' | 'install'. parte: 'nucleo' (troca com o jogo aberto) | 'carregador' (jogo
-    fechado) | 'todas'."""
-    if acao == 'build':
-        return dll.build(parte)[1]
-    if acao == 'install':
-        return str(dll.install(parte))
+def ck3_dll(action: str = 'status', part: str = 'core') -> str:
+    """action 'status' | 'build' | 'install'. part: 'core' (swappable with the game open) | 'loader' (game
+    closed) | 'all'."""
+    if action == 'build':
+        return dll.build(part)[1]
+    if action == 'install':
+        return str(dll.install(part))
     return str(dll.status())
 
 

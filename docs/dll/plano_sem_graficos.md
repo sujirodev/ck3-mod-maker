@@ -1,186 +1,191 @@
-# Plano: DLL funcionando com o jogo sem graficos (`-nographics`) e painel de acompanhamento
+Portuguese version: [plano_sem_graficos.pt-BR.md](plano_sem_graficos.pt-BR.md)
 
-Origem: teste de 2026-10-07 (docs/dossie_exercitos.md 9.6, docs/arquitetura_dll.md item 7). Com `-nographics` o
-carregador, o nucleo e o plugin sobem, mas o processo nao cria janela. Todo pedido passa por
-`PostMessage(WM_AR_COMMAND)` para a janela do jogo (`find_wnd` e `worker_thread` em `dll/ar_proxy.c`), entao sem
-janela nada e atendido (descarte de 8 s). O `debug.log` parou no meio do "Load Save" e a memoria caiu para 0,8 GB: nao
-se sabe se a simulacao anda sem graficos.
+# Plan: DLL working with the game without graphics (`-nographics`) and a monitoring panel
 
-Fato conferido (objdump do ck3.exe 1.19.0.6): o jogo importa da nossa `winmm.dll` `timeGetTime`, `timeBeginPeriod`,
-`timeEndPeriod`, `waveIn*` e `waveOut*`. Hoje essas exportacoes sao `jmp` direto para a DLL do sistema
-(`dll/exports.h`); para servir de gancho, a escolhida tem que virar funcao C.
+Origin: test of 2026-10-07 (docs/dossie_exercitos.md 9.6, docs/arquitetura_dll.md item 7). With `-nographics` the
+loader, the core and the plugin start, but the process does not create a window. Every request goes through
+`PostMessage(WM_AR_COMMAND)` to the game window (`find_wnd` and `worker_thread` in `dll/ar_proxy.c`), so without a
+window nothing is served (discarded after 8 s). `debug.log` stopped in the middle of "Load Save" and memory dropped to
+0.8 GB: it is not known whether the simulation runs without graphics.
 
-Regra: nada disto e feito com rodada em andamento (memoria "nao editar o mod com rodada no jogo").
+Verified fact (objdump of ck3.exe 1.19.0.6): the game imports from our `winmm.dll` `timeGetTime`, `timeBeginPeriod`,
+`timeEndPeriod`, `waveIn*` and `waveOut*`. Today those exports are a direct `jmp` to the system DLL
+(`dll/exports.h`); to serve as a hook, the chosen one has to become a C function.
 
-## Ordem
-1. Painel (so leitura do log) - feito em `docs/testes/painel.py`.
-2. Fase 0 (diagnostico).
-3. Status JSON no nucleo (alimenta o painel sem depender do vigia).
-4. Fases 1 a 3. Fase 4 opcional.
+Rule: none of this is done with a run in progress (memory "do not edit the mod with a run in the game").
 
-## Fase 0: diagnostico
-- Carregador: trocar o `jmp` do `timeGetTime` por invólucro que conta chamadas por thread; patch da IAT do `ck3.exe`
-  para `QueryPerformanceCounter` e `Sleep` (todo laco de jogo chama).
-- Thread de trabalho: batimento a cada 5 s no log com chamadas por segundo de cada gancho na thread principal, e
-  amostra de onde a thread principal esta (`SuspendThread` + `GetThreadContext`, `RIP = exe+0x...`).
-- Rodar com `-nographics` e separar:
-  - thread principal em laco chamando um gancho: segue para a fase 1;
-  - thread principal presa em ponto fixo (render/SDL): o RIP diz onde; provavel plano B;
-  - processo voltou ao menu ou abortou a carga.
+## Order
+1. Panel (log reading only) - done in `docs/testes/painel.py`.
+2. Phase 0 (diagnosis).
+3. Status JSON in the core (feeds the panel without depending on the watcher).
+4. Phases 1 to 3. Phase 4 optional.
 
-## Fase 1: canal de pedidos sem janela
-- Separar o corpo do `ar_wndproc` em `q_drain()`; a WndProc continua chamando (nada muda com graficos).
-- Bomba nova dentro do gancho escolhido na fase 0: so na `main_thread`, no maximo a cada ~50 ms, trava contra
-  reentrada, mesmo `core_enter`/`run_command_guarded`.
-- Risco: a WndProc roda num ponto seguro do quadro; `timeGetTime` pode ser chamado no meio de uma atualizacao.
-  Mitigacao: so drenar quando o endereco de retorno for o ponto de chamada do laco principal achado na fase 0.
-- Descarte de 8 s e `find_wnd` ficam so para o caminho com janela. O log diz o canal ativo (`janela` ou `bomba`).
+## Phase 0: diagnosis
+- Loader: replace the `timeGetTime` `jmp` with a wrapper that counts calls per thread; patch the `ck3.exe` IAT
+  for `QueryPerformanceCounter` and `Sleep` (every game loop calls them).
+- Worker thread: heartbeat every 5 s in the log with calls per second of each hook on the main thread, and a
+  sample of where the main thread is (`SuspendThread` + `GetThreadContext`, `RIP = exe+0x...`).
+- Run with `-nographics` and tell apart:
+  - main thread in a loop calling a hook: go on to phase 1;
+  - main thread stuck at a fixed point (render/SDL): the RIP says where; likely plan B;
+  - process went back to the menu or aborted the load.
 
-## Fase 2: a simulacao anda?
-- `state`, `velocidade 5`, `pause 0`, contar dias e pulsos. Se os dias nao andam, o laco de dias esta preso ao de
-  quadros: parar e ir ao plano B.
+## Phase 1: request channel without a window
+- Split the body of `ar_wndproc` into `q_drain()`; the WndProc keeps calling it (nothing changes with graphics).
+- New pump inside the hook chosen in phase 0: only on `main_thread`, at most every ~50 ms, reentrancy lock, same
+  `core_enter`/`run_command_guarded`.
+- Risk: the WndProc runs at a safe point of the frame; `timeGetTime` may be called in the middle of an update.
+  Mitigation: only drain when the return address is the call site of the main loop found in phase 0.
+- The 8 s discard and `find_wnd` stay only for the window path. The log states the active channel (`janela` or `bomba`).
 
-## Fase 3: fidelidade e ganho
-- `docs/testes/ng_eudes.py`, 60 dias, comparado pelo `dossie.py` com as 6 gravacoes de referencia. Medir ms por dia
-  contra 153 a 184 ms com graficos.
+## Phase 2: does the simulation run?
+- `state`, `velocidade 5`, `pause 0`, count days and pulses. If the days do not advance, the day loop is tied to the
+  frame loop: stop and go to plan B.
 
-## Fase 4 (opcional): varias instancias
-- `ck3_custom_cmd.txt` e `ck3_custom_dll.log` sao unicos na pasta `binaries`: nomes por pid e `arlib` com alvo.
-  Saves e autosaves tambem sao compartilhados.
+## Phase 3: fidelity and gain
+- `docs/testes/ng_eudes.py`, 60 days, compared by `dossie.py` against the 6 reference recordings. Measure ms per day
+  against 153 to 184 ms with graphics.
 
-## Plano B
-Jogo com graficos minimos e janela escondida: o canal por WndProc continua; afrouxar o `IsWindowVisible` do
-`find_wnd`. Ganho menor de velocidade, mas libera a tela e e mais seguro.
+## Phase 4 (optional): several instances
+- `ck3_custom_cmd.txt` and `ck3_custom_dll.log` are unique in the `binaries` folder: names per pid and `arlib` with a
+  target. Saves and autosaves are also shared.
 
-## Painel (`docs/testes/painel.py`)
-- `rich` (instalado; `textual` nao). Atualiza a cada ~1 s. Uso: `python docs/testes/painel.py [--out nome] [--uma-vez]`.
-- So leitura: o arquivo de pedidos guarda uma linha so; se o painel mandasse `state` junto com o vigia, um pisaria no
-  outro. Le a cauda do `ck3_custom_dll.log` (o arquivo tem centenas de MB: comeca pelos ultimos 4 MB) e o
-  `saida/<nome>.out` da rodada.
-- Mostra: processo (pid, RAM, CPU, com ou sem janela), canal de pedidos (ultimo atendido, descartes), estado de pausa
-  e velocidade, data/ouro/guerra e exercitos da ultima amostra do vigia, pulsos (ms por dia, dias por minuto, grafico
-  de linha), decisor, falhas contidas, ultimas linhas relevantes do log e da rodada.
-- Depois: trocar a amostra do vigia pelo `ck3_custom_status.json` gravado pelo nucleo a cada dia (temporario +
-  rename) e mostrar o batimento da fase 0.
+## Plan B
+Game with minimal graphics and a hidden window: the WndProc channel keeps working; relax the `IsWindowVisible` in
+`find_wnd`. Smaller speed gain, but it frees the screen and is safer.
 
-## Resultados (2026-10-07, tarde)
+## Panel (`docs/testes/painel.py`)
+- `rich` (installed; `textual` is not). Refreshes every ~1 s. Usage: `python docs/testes/painel.py [--out nome] [--uma-vez]`.
+- Read only: the request file holds a single line; if the panel sent `state` alongside the watcher, one would step on
+  the other. Reads the tail of `ck3_custom_dll.log` (the file is hundreds of MB: starts with the last 4 MB) and the
+  run's `saida/<nome>.out`.
+- Shows: process (pid, RAM, CPU, with or without a window), request channel (last served, discards), pause state
+  and speed, date/gold/war and armies from the watcher's last sample, pulses (ms per day, days per minute, line
+  chart), decision maker, contained crashes, last relevant lines of the log and of the run.
+- Later: replace the watcher's sample with `ck3_custom_status.json` written by the core every day (temporary +
+  rename) and show the phase 0 heartbeat.
 
-### Fase 0: diagnostico
-Carregador com ganchos na tabela de importacao do ck3.exe (`QueryPerformanceCounter`, `Sleep`, `SleepEx`,
-`timeGetTime`, `PeekMessageW`, `GetMessageW`, `SwitchToThread`, `WaitForSingleObject(Ex)`), contando so a thread
-principal (`SwitchToThread` vai a milhoes por segundo nas outras threads: contador comum seria disputado), amostras da
-thread principal a cada 250 ms (suspende, copia a pilha, retoma) e batimento a cada 5 s com `-nographics` ou
+## Results (2026-10-07, afternoon)
+
+### Phase 0: diagnosis
+Loader with hooks in ck3.exe's import table (`QueryPerformanceCounter`, `Sleep`, `SleepEx`,
+`timeGetTime`, `PeekMessageW`, `GetMessageW`, `SwitchToThread`, `WaitForSingleObject(Ex)`), counting only the main
+thread (`SwitchToThread` reaches millions per second on the other threads: a shared counter would be contended), samples
+of the main thread every 250 ms (suspend, copy the stack, resume) and heartbeat every 5 s with `-nographics` or
 `AR_DIAG=1`.
 
-| Situacao | Thread principal (chamadas/s) |
+| Situation | Main thread (calls/s) |
 |---|---|
-| Com graficos, menu/carga | `PeekMessageW` 60, `Sleep` 59 (limitador de quadros em exe+0x3E23F50), QPC ~950 |
-| Com graficos, partida correndo | `PeekMessageW` 110 a 280, `SleepEx` 54 a 140, QPC 120 mil a 800 mil |
-| Sem graficos, carga | `SwitchToThread` 0,5 a 2,5 milhoes (espera ativa em exe+0x3B67FE0), quase nada mais |
-| Sem graficos, partida | `PeekMessageW` 150 a 260 mil, `SleepEx` 75 a 110 mil, QPC 450 a 670 mil: laco sem limitador |
+| With graphics, menu/load | `PeekMessageW` 60, `Sleep` 59 (frame limiter at exe+0x3E23F50), QPC ~950 |
+| With graphics, game running | `PeekMessageW` 110 to 280, `SleepEx` 54 to 140, QPC 120 thousand to 800 thousand |
+| Without graphics, load | `SwitchToThread` 0.5 to 2.5 million (busy wait at exe+0x3B67FE0), almost nothing else |
+| Without graphics, game | `PeekMessageW` 150 to 260 thousand, `SleepEx` 75 to 110 thousand, QPC 450 to 670 thousand: loop without a limiter |
 
-O teste anterior (dossie 9.6) so concluiu que o canal estava morto: a carga sem graficos funciona (memoria 2,9 a 3,6
-GB, `state` responde PAUSADO com o save carregado). A queda para 0,8 GB daquele teste nao se repetiu.
+The previous test (dossie 9.6) only concluded that the channel was dead: loading without graphics works (memory 2.9 to
+3.6 GB, `state` answers PAUSADO with the save loaded). The drop to 0.8 GB from that test did not happen again.
 
-### Fase 1: canal sem janela
-`q_drain()` separado da WndProc. A bomba roda no gancho escolhido a cada batimento (o primeiro, na ordem
-`PeekMessageW`, `GetMessageW`, `timeGetTime`, `SleepEx`, `Sleep`, QPC, com >= 10 chamadas/s na thread principal),
-no maximo a cada 50 ms, com trava contra reentrada. Decisao: `SwitchToThread` e as esperas ficaram fora da lista; na
-primeira tentativa a bomba pegou `SwitchToThread` durante a carga (ponto no meio da carga) e parou de atender quando a
-carga terminou. Com a lista nova a bomba fica em `PeekMessageW`, o mesmo ponto do laco de mensagens em que a WndProc
-roda com graficos. Todos os pedidos (`state`, `velocidade`, `pause`, `events`, `carregar`, `cfg`...) respondem.
+### Phase 1: channel without a window
+`q_drain()` split out of the WndProc. The pump runs in the hook chosen at each heartbeat (the first, in the order
+`PeekMessageW`, `GetMessageW`, `timeGetTime`, `SleepEx`, `Sleep`, QPC, with >= 10 calls/s on the main thread),
+at most every 50 ms, with a reentrancy lock. Decision: `SwitchToThread` and the waits were left out of the list; on
+the first attempt the pump picked `SwitchToThread` during the load (a point in the middle of the load) and stopped
+serving when the load finished. With the new list the pump stays in `PeekMessageW`, the same point of the message loop
+where the WndProc runs with graphics. All requests (`state`, `velocidade`, `pause`, `events`, `carregar`, `cfg`...)
+respond.
 
-### Console sem graficos
-O console do jogo (`CConsole`, global 0x570f7b0) nao e criado com `-nographics`: `console effect ...` (amostra do
-vigia, paz, cenario ideal, configuracao) parava em "console do jogo indisponivel". Solucao no nucleo:
-- `0xe3e8b0(resultado, leitor)` e o comando de console `effect` (o comando `run` o chama com um leitor de texto montado
-  como o `layout` do nucleo). `efeito <texto>` monta o leitor e chama direto; sem console, `console effect ...` vai por
-  ele. Recusa com a partida carregando (velocidade -1): era a causa das quedas em exe+0xe3ea3e (memoria
-  console-durante-carga-derruba), que ficam no proprio comando.
-- O comando escreve o resultado no console (`0x34b47d0`, console em rcx): desvio permanente que retorna se rcx e nulo,
-  instalado so quando nao ha console.
-- `event <id>` nao tem caminho seguro: `trigger_event` na hora, fora do laco do jogo, falha no gerenciador de eventos
-  (exe+0x356b6ca, chamada a partir de 0x278d6b0, eventmanager.cpp) depois de o evento rodar. `arlib.ligar()` e
-  `desligar()` passaram a rodar os efeitos dos eventos auto_raid.2/.3 por `effect` (equivalente, nos dois modos).
-- A linha FALHA CONTIDA do carregador agora traz a pilha (enderecos de retorno no exe).
+### Console without graphics
+The game console (`CConsole`, global 0x570f7b0) is not created with `-nographics`: `console effect ...` (watcher
+sample, peace, ideal scenario, configuration) stopped at "console do jogo indisponivel". Solution in the core:
+- `0xe3e8b0(resultado, leitor)` is the `effect` console command (the `run` command calls it with a text reader built
+  like the core's `layout`). `efeito <texto>` builds the reader and calls it directly; without a console,
+  `console effect ...` goes through it. Refuses while the game is loading (speed -1): that was the cause of the crashes
+  at exe+0xe3ea3e (memory console-durante-carga-derruba), which happen in the command itself.
+- The command writes the result to the console (`0x34b47d0`, console in rcx): permanent detour that returns if rcx is
+  null, installed only when there is no console.
+- `event <id>` has no safe path: `trigger_event` on the spot, outside the game loop, crashes in the event manager
+  (exe+0x356b6ca, called from 0x278d6b0, eventmanager.cpp) after the event runs. `arlib.ligar()` and
+  `desligar()` now run the effects of events auto_raid.2/.3 through `effect` (equivalent, in both modes).
+- The loader's FALHA CONTIDA line now includes the stack (return addresses in the exe).
 
-### Fase 2: a simulacao anda
-Sim. Sem nenhum pedido, o jogo foi de 867.01.01 a 867.06.18 em ~1 min de carga+corrida; pausas por evento aparecem e
-`events answer` responde. Abertura do save: 69 s sem graficos contra 139 s com graficos.
+### Phase 2: the simulation runs
+Yes. Without any request, the game went from 867.01.01 to 867.06.18 in ~1 min of load+run; event pauses show up and
+`events answer` answers them. Opening the save: 69 s without graphics versus 139 s with graphics.
 
-### Data do jogo
-`[game_state]+0x9c` = dias desde o ano 0 (365 por ano), achado com o pedido novo `busca32` e conferido com 35 dias de
-avanco. Vai no `status.json`.
+### Game date
+`[game_state]+0x9c` = days since year 0 (365 per year), found with the new request `busca32` and checked against 35
+days of advance. It goes into `status.json`.
 
-### Partida comeca correndo sem graficos
-Sem a tela do "Jogar", o jogo manda sozinho, logo depois da carga, `CAddPlayer`, `CSetDoneReplayingCommandsCommand`,
-`CSetObserverCommand` e `CStartGameCommand`, e os dias correm (a primeira rodada comecou em 867.01.27, a segunda em
-868.07.01). Correcao no nucleo: o `status` (a cada 250 ms sem graficos) pausa na passagem carregando -> carregada e
-segura a pausa ate o primeiro `pause 0` pedido (pausa de novo se o jogo despausar sozinho). Com isso a rodada comeca em
-867.01.03, como as de referencia (867.01.02). O jogador continua humano (`is_ai = no` vale no `ligar`).
+### Game starts running without graphics
+Without the "Play" screen, the game sends on its own, right after the load, `CAddPlayer`,
+`CSetDoneReplayingCommandsCommand`, `CSetObserverCommand` and `CStartGameCommand`, and the days run (the first run
+started at 867.01.27, the second at 868.07.01). Fix in the core: `status` (every 250 ms without graphics) pauses on the
+loading -> loaded transition and holds the pause until the first requested `pause 0` (pauses again if the game unpauses
+on its own). With that the run starts at 867.01.03, like the reference ones (867.01.02). The player is still human
+(`is_ai = no` holds in `ligar`).
 
-### Fase 3: fidelidade e ganho
-Mesmo save (`ar_ideal_eudes_pagao`), mesmo roteiro (`ng_eudes.py`, 60 dias, `risco_combate` 0,25, gravacao densa),
-mesmo codigo; `gr_eudes` com graficos (`ng_eudes.py gr_eudes 60 graficos`), na mesma hora e com a maquina igualmente
-ocupada.
+### Phase 3: fidelity and gain
+Same save (`ar_ideal_eudes_pagao`), same script (`ng_eudes.py`, 60 days, `risco_combate` 0.25, dense recording),
+same code; `gr_eudes` with graphics (`ng_eudes.py gr_eudes 60 graficos`), at the same time and with the machine equally
+busy.
 
-| | gr_eudes (graficos) | ng_eudes3 | ng_eudes4 |
+| | gr_eudes (graphics) | ng_eudes3 | ng_eudes4 |
 |---|---|---|---|
-| abertura do save | 147 s | 86 s | 83 s |
-| ms por dia de jogo (mediana) | 222 | 117 | 126 |
-| periodo / pulsos | 867.01.02 a 03.21 / 79 | 867.01.03 a 03.18 / 75 | 867.01.03 a 03.23 / 80 |
-| linhas de raid por pulso / saqueando por pulso | 22,3 / 3,8 | 25,8 / 4,6 | 24,0 / 5,6 |
-| exercitos da IA / saidas | 49 / 25 | 52 / 29 | 56 / 28 |
-| escolhas confirmadas / truncadas | 16 / 26 | 17 / 28 | 21 / 25 |
+| save opening | 147 s | 86 s | 83 s |
+| ms per game day (median) | 222 | 117 | 126 |
+| period / pulses | 867.01.02 to 03.21 / 79 | 867.01.03 to 03.18 / 75 | 867.01.03 to 03.23 / 80 |
+| raid lines per pulse / raiding per pulse | 22.3 / 3.8 | 25.8 / 4.6 | 24.0 / 5.6 |
+| AI armies / sorties | 49 / 25 | 52 / 29 | 56 / 28 |
+| confirmed / truncated choices | 16 / 26 | 17 / 28 | 21 / 25 |
 
-As rodadas d0/d1a/d1b/d1c antigas (com graficos, codigo anterior) ficam em 23,7 a 27,6 linhas de raid por pulso, 3,3
-a 4,5 saqueando por pulso e 49 a 58 unidades. Conclusao: sem graficos o jogo se comporta dentro da variacao entre
-rodadas com graficos, abre o save em ~0,6 do tempo e roda cada dia em ~0,55 do tempo (1,8 vez mais rapido).
+The old d0/d1a/d1b/d1c runs (with graphics, previous code) come in at 23.7 to 27.6 raid lines per pulse, 3.3
+to 4.5 raiding per pulse and 49 to 58 units. Conclusion: without graphics the game behaves within the variation between
+runs with graphics, opens the save in ~0.6 of the time and runs each day in ~0.55 of the time (1.8 times faster).
 
-### Fase 4: varias instancias (codigo pronto, teste cancelado a pedido do usuario)
-- Carregador: `AR_INSTANCIA=<nome>` -> `ck3_custom_dll_<nome>.log` e `ck3_custom_cmd_<nome>.txt`; copias do nucleo com o
-  pid no nome (`ck3_custom_core_live_<pid>_<n>.dll`), limpeza por padrao (as carregadas nao se apagam).
-- Nucleo: `ck3_custom\status_<nome>.json`.
-- `arlib.usar_instancia(nome)`: caminhos proprios, `AR_INSTANCIA` passado ao jogo, `ck3_aberto`/`fechar_jogo` so no
-  processo aberto por esta instancia. `ng_eudes.py` usa a instancia do ambiente. `painel.py --instancia <nome> --pid <n>`.
-- Sem a variavel, tudo como antes (verificado nas rodadas acima com o carregador novo).
-- Pendente: o teste com duas instancias (abrir uma, esperar carregar, abrir a outra, para o `continue_game.json` nao
-  ser disputado; autosaves sao compartilhados).
+### Phase 4: several instances (code ready, test cancelled at the user's request)
+- Loader: `AR_INSTANCIA=<nome>` -> `ck3_custom_dll_<nome>.log` and `ck3_custom_cmd_<nome>.txt`; copies of the core
+  with the pid in the name (`ck3_custom_core_live_<pid>_<n>.dll`), cleanup by default (loaded ones are not deleted).
+- Core: `ck3_custom\status_<nome>.json`.
+- `arlib.usar_instancia(nome)`: own paths, `AR_INSTANCIA` passed to the game, `ck3_aberto`/`fechar_jogo` only on the
+  process opened by this instance. `ng_eudes.py` uses the instance from the environment. `painel.py --instancia <nome> --pid <n>`.
+- Without the variable, everything as before (verified in the runs above with the new loader).
+- Pending: the test with two instances (open one, wait for it to load, open the other, so that `continue_game.json` is
+  not contended; autosaves are shared).
 
-## Pendencias e decisoes para o usuario
-- `console event <id>` nao funciona sem graficos (sem caminho seguro); usar `effect` com o conteudo do evento.
-- A bomba pode atender pedidos em `QueryPerformanceCounter` durante a carga (ate o batimento seguinte trocar para
-  `PeekMessageW`); na carga o vigia so manda `state`.
-- Os ganchos de importacao ficam instalados sempre (custo pequeno: uma comparacao de thread por chamada); os
-  batimentos e as amostras so com `-nographics` ou `AR_DIAG=1`.
+## Pending items and decisions for the user
+- `console event <id>` does not work without graphics (no safe path); use `effect` with the event's content.
+- The pump may serve requests in `QueryPerformanceCounter` during the load (until the next heartbeat switches to
+  `PeekMessageW`); during the load the watcher only sends `state`.
+- The import hooks stay installed always (small cost: one thread comparison per call); the
+  heartbeats and samples only with `-nographics` or `AR_DIAG=1`.
 
-## Painel do jogo (2026-10-07, pedido do usuario: acompanhar o jogo sem interface)
-- O plugin do mod grava a cada pulso diario `ck3_custom/painel_auto_raid.json` (funcao `painel_gravar` em
-  plugin/auto_raid.c, depois do decisor): governante (ouro, prestigio, piedade, idade, saude, forca do exercito, guerra,
-  se e IA), o mod (ligado, risco de combate) e cada exercito (provincia, destino, estado, soldados, suprimento, saque e
-  capacidade, alvo com ouro/dia, marcha e dias de saque, candidatos e inseguros, ameaca, chance, fuga, casa, combate).
-- Eventos (os 40 ultimos, com a data do jogo): avisos do decisor (os mesmos textos que o jogo mostra), alvo escolhido e
-  por que, inicio de saque, volta para casa (saque terminado, depois da fuga, desistiu do alvo), entrega do saque, fuga
-  (para onde, ameaca em quantos dias, chance de vitoria), entrada e saida de combate (soldados antes e depois), exercito
-  novo e exercito sumido (destruido em combate ou dissolvido). Volta e fuga saem no pulso seguinte, porque o script
-  preenche casa e fuga depois do decisor.
-- O TinyCC que compila o plugin no jogo nao liga funcoes de arquivo (fopen, fclose, rename, vsnprintf): a API ganhou
-  `file_write(nome, texto, tamanho)` (ck3_api.h, api 3), que o nucleo grava em ck3_custom/ com temporario e troca e com o
-  sufixo de AR_INSTANCIA. O plugin monta o JSON num buffer com snprintf.
-- `docs/testes/painel.py` (rich): cabecalho (data, pausa, velocidade, dias por minuto, canal, processo), governante, Auto
-  Raid, tabela de exercitos com o nome da provincia e o que cada um esta fazendo, eventos coloridos e uma faixa da DLL
-  (falhas contidas, pedidos sem resposta). Nomes de provincia: `common/landed_titles` + localizacao braz_por do jogo
-  (cache em saida/nomes_provincias.json); textos dos avisos: localizacao do mod.
-- Janela propria (pedido do usuario: a CLI ficou feia): `docs/testes/painel_qt.py` (PySide6, instalado em
-  2026-10-07), tema escuro: cabecalho (data, correndo/pausado, sem graficos, dias/min, ms/dia, processo), cartoes do
-  governante (ouro, prestigio, piedade, idade, saude, guerra, forca), do Auto Raid e do placar de saques (tentados,
-  iniciados, terminados sem e com combate, interrompidos, entregas e ouro entregue, voltas vazias, fugas, combates,
-  destruidos), grafico do ouro, tabela de exercitos (barras de suprimento e saque), barra do tempo em cada estado (dias
-  de jogo e segundos reais) e a lista de decisoes e resultados. Abrir: `pythonw painel_qt.py` em docs/testes. O placar
-  e os tempos contam desde que a janela abriu (vem dos eventos do plugin).
-- Placar exato (2026-10-07, pedido do usuario: "precisos igual os que voces estao vendo"): o plugin conta todo pulso,
-  desde o carregamento do save (zera quando a data volta ou pula), com as definicoes do dossie.py (saida, saque com
-  combate / interrompido / sem combate, entrega com ouro, saque perdido, destruido) e o tempo em cada estado (dias de
-  jogo e segundos reais); grava `inicio`, `real_s`, `placar` e `tempo` no painel_auto_raid.json, e a janela so exibe.
-  Conferido em `ng_placar` (3 anos): 8 saidas, 8 voltas vazias, 3 saques com combate, 3 combates, 0 ouro, 0 perdido,
-  identico ao dossie.py da mesma gravacao.
+## Game panel (2026-10-07, user request: follow the game without the interface)
+- The mod's plugin writes `ck3_custom/painel_auto_raid.json` on every daily pulse (function `painel_gravar` in
+  plugin/auto_raid.c, after the decision maker): ruler (gold, prestige, piety, age, health, army strength, war,
+  whether AI), the mod (on, combat risk) and each army (province, destination, state, soldiers, supply, loot and
+  capacity, target with gold/day, march and raid days, candidates and unsafe ones, threat, chance, flight, home, combat).
+- Events (the last 40, with the game date): decision maker warnings (the same texts the game shows), target chosen and
+  why, raid start, return home (raid finished, after fleeing, gave up on the target), loot delivery, flight
+  (to where, threat in how many days, chance of victory), entering and leaving combat (soldiers before and after), new
+  army and vanished army (destroyed in combat or disbanded). Return and flight come out on the following pulse, because
+  the script fills in home and flight after the decision maker.
+- The TinyCC that compiles the plugin in the game does not link file functions (fopen, fclose, rename, vsnprintf): the
+  API gained `file_write(nome, texto, tamanho)` (ck3_api.h, api 3), which the core writes into ck3_custom/ with a
+  temporary file and swap and with the AR_INSTANCIA suffix. The plugin builds the JSON in a buffer with snprintf.
+- `docs/testes/painel.py` (rich): header (date, pause, speed, days per minute, channel, process), ruler, Auto
+  Raid, army table with the province name and what each one is doing, colored events and a DLL strip
+  (contained crashes, unanswered requests). Province names: `common/landed_titles` + the game's braz_por localization
+  (cache in saida/nomes_provincias.json); warning texts: the mod's localization.
+- Own window (user request: the CLI looked ugly): `docs/testes/painel_qt.py` (PySide6, installed on
+  2026-10-07), dark theme: header (date, running/paused, no graphics, days/min, ms/day, process), cards for the
+  ruler (gold, prestige, piety, age, health, war, strength), for Auto Raid and for the raid scoreboard (attempted,
+  started, finished without and with combat, interrupted, deliveries and gold delivered, empty returns, flights, combats,
+  destroyed), gold chart, army table (supply and loot bars), bar of the time in each state (game days
+  and real seconds) and the list of decisions and results. Open: `pythonw painel_qt.py` in docs/testes. The scoreboard
+  and the times count from when the window opened (they come from the plugin's events).
+- Exact scoreboard (2026-10-07, user request: "precisos igual os que voces estao vendo" - as precise as the ones you
+  are seeing): the plugin counts every pulse, since the save was loaded (resets when the date goes back or jumps), with
+  the definitions from dossie.py (sortie, raid with combat / interrupted / without combat, delivery with gold, lost
+  loot, destroyed) and the time in each state (game days and real seconds); writes `inicio`, `real_s`, `placar` and
+  `tempo` to painel_auto_raid.json, and the window only displays them.
+  Checked in `ng_placar` (3 years): 8 sorties, 8 empty returns, 3 raids with combat, 3 combats, 0 gold, 0 lost,
+  identical to dossie.py for the same recording.

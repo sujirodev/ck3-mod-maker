@@ -1,5 +1,5 @@
-# Checagem de inicio de sessao: ambiente, DLL instalada x fonte, referencia, jogo e mods. Cada item: (nivel, item,
-# detalhe) com nivel ok | aviso | erro.
+# Session start check: environment, installed DLL vs source, reference index, game and mods. Each item is
+# (level, item, detail) with level ok | warn | error.
 import filecmp, json, os, shutil, time
 from . import config, dll, game, mods
 from .client import Ck3
@@ -12,66 +12,66 @@ def _same(a, b):
 def run():
     r = []
     v = game.version()
-    r.append(('ok' if v == config.CK3_VERSION else 'erro', 'versao do jogo',
-              '%s (a DLL so conhece a %s)' % (v, config.CK3_VERSION)))
-    r.append(('ok' if shutil.which('gcc') else 'aviso', 'gcc', shutil.which('gcc') or 'fora do PATH: sem build da DLL'))
+    r.append(('ok' if v == config.CK3_VERSION else 'error', 'game version',
+              '%s (the DLL only knows %s)' % (v, config.CK3_VERSION)))
+    r.append(('ok' if shutil.which('gcc') else 'warn', 'gcc', shutil.which('gcc') or 'not in PATH: no DLL builds'))
     tcc = os.path.join(config.TINYCC, 'win32', 'tcc.exe')
-    r.append(('ok' if os.path.exists(tcc) else 'aviso', 'tcc', tcc if os.path.exists(tcc) else 'sem checagem de plugin C fora do jogo'))
+    r.append(('ok' if os.path.exists(tcc) else 'warn', 'tcc',
+              tcc if os.path.exists(tcc) else 'missing: no C plugin check outside the game'))
 
-    reg = dll.registro()
-    for parte, fn in dll.BINS.items():
+    rec = dll.record()
+    for part, fn in dll.BINS.items():
         dst = os.path.join(config.BIN, fn)
-        rg = reg.get(parte)
+        rg = rec.get(part)
         if not os.path.exists(dst):
-            r.append(('erro', 'DLL ' + parte, 'nao instalada (ck3ctl dll build + dll install todas, jogo fechado)'))
+            r.append(('error', 'DLL ' + part, 'not installed (ck3ctl dll build + dll install all, game closed)'))
         elif not rg:
-            r.append(('aviso', 'DLL ' + parte, 'instalada fora do ck3ctl: sem registro para comparar com a fonte '
-                      '(dll build + dll install %s)' % parte))
-        elif dll.sha(dst) != rg['binario']:
-            r.append(('aviso', 'DLL ' + parte, 'binario trocado fora do ck3ctl desde %s' % rg['data']))
-        elif dll.fonte_sha(parte) != rg['fonte']:
-            r.append(('aviso', 'DLL ' + parte, 'fonte mudou desde a instalacao de %s (dll build + dll install %s)'
-                      % (rg['data'], parte)))
+            r.append(('warn', 'DLL ' + part, 'installed outside ck3ctl: no record to compare with the source '
+                      '(dll build + dll install %s)' % part))
+        elif dll.sha(dst) != rg['binary']:
+            r.append(('warn', 'DLL ' + part, 'binary replaced outside ck3ctl since %s' % rg['date']))
+        elif dll.source_sha(part) != rg['source']:
+            r.append(('warn', 'DLL ' + part, 'source changed since the install of %s (dll build + dll install %s)'
+                      % (rg['date'], part)))
         else:
-            r.append(('ok', 'DLL ' + parte, 'instalada = fonte atual (%s)' % rg['data']))
+            r.append(('ok', 'DLL ' + part, 'installed = current source (%s)' % rg['date']))
     h = os.path.join(config.BIN, 'ck3_custom', 'include', 'ck3_api.h')
-    r.append(('ok' if _same(h, os.path.join(config.DLL_SRC, 'ck3_api.h')) else 'aviso', 'ck3_api.h',
-              'instalado = fonte' if _same(h, os.path.join(config.DLL_SRC, 'ck3_api.h')) else 'difere da fonte (dll install)'))
+    same_h = _same(h, os.path.join(config.DLL_SRC, 'ck3_api.h'))
+    r.append(('ok' if same_h else 'warn', 'ck3_api.h', 'installed = source' if same_h else 'differs from source (dll install)'))
 
     idx = os.path.join(config.REFERENCE, 'index.json')
     if os.path.exists(idx):
-        g = json.load(open(idx, encoding='utf-8')).get('gerado', '?')
-        r.append(('ok', 'referencia', 'indice de %s' % g))
+        r.append(('ok', 'reference', 'index from %s' % json.load(open(idx, encoding='utf-8')).get('built', '?')))
     else:
-        r.append(('aviso', 'referencia', 'sem indice (ck3ctl ref build)'))
+        r.append(('warn', 'reference', 'no index (ck3ctl ref build)'))
 
     if game.running():
         c = Ck3()
         st = c.state() if c.alive() else None
         if not st:
-            r.append(('erro', 'jogo', 'aberto, mas a DLL nao responde (sem -debug_mode?)'))
+            r.append(('error', 'game', 'open, but the DLL does not answer (no -debug_mode?)'))
         else:
-            r.append(('ok', 'jogo', 'aberto, %s velocidade=%d%s' % (st['texto'], st['velocidade'],
-                                                                   '' if st['carregado'] else ' (sem partida/carregando)')))
-            falhas = c.faults(max(0, c.size() - 200000))
-            if falhas:
-                r.append(('aviso', 'FALHA CONTIDA', '%d no fim do log; ultima: %s' % (len(falhas), falhas[-1][:160])))
+            r.append(('ok', 'game', 'open, %s speed=%d%s' % (st['text'], st['speed'],
+                                                            '' if st['loaded'] else ' (no save / loading)')))
+            faults = c.faults(max(0, c.size() - 200000))
+            if faults:
+                r.append(('warn', 'contained fault', '%d at the end of the DLL log; last: %s' % (len(faults), faults[-1][:160])))
     else:
-        r.append(('ok', 'jogo', 'fechado'))
+        r.append(('ok', 'game', 'closed'))
 
     for m in mods.listing():
-        fs = mods.features(m['nome'])
-        resumo = '' if fs is not None else 'sem dev/features.json (mod init)'
+        fs = mods.features(m['name'])
+        summary = '' if fs is not None else 'no dev/features.json (mod init)'
         if fs:
-            cont = {}
+            count = {}
             for x in fs:
-                cont[x.get('status')] = cont.get(x.get('status'), 0) + 1
-            resumo = ', '.join('%s %d' % kv for kv in cont.items())
-        nivel = 'ok' if m['ligado_ao_jogo'] and m['ativo'] else 'aviso'
-        r.append((nivel, 'mod ' + m['nome'], '%s%s%s%s' % (
-            'ligado' if m['ligado_ao_jogo'] else 'sem .mod no launcher (mod link)',
-            ', ativo' if m['ativo'] else ', inativo (mod enable)',
-            (', PLUGIN C' if m['plugin'] else '') + ('' if m['git'] else ', sem git'), '; ' + resumo if resumo else '')))
+                count[x.get('status')] = count.get(x.get('status'), 0) + 1
+            summary = ', '.join('%s %d' % kv for kv in count.items())
+        level = 'ok' if m['linked'] and m['enabled'] else 'warn'
+        r.append((level, 'mod ' + m['name'], '%s%s%s%s' % (
+            'linked' if m['linked'] else 'no launcher .mod (mod link)',
+            ', enabled' if m['enabled'] else ', disabled (mod enable)',
+            (', C PLUGIN' if m['plugin'] else '') + ('' if m['git'] else ', no git'), '; ' + summary if summary else '')))
     return r
 
 

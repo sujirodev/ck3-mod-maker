@@ -1,6 +1,6 @@
-version="{{versao}}"
+version="{{version}}"
 tags={
 	"Gameplay"
 }
-name="{{titulo}}"
-supported_version="{{jogo}}"
+name="{{title}}"
+supported_version="{{game}}"

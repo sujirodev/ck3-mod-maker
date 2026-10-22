@@ -1,0 +1,4 @@
+﻿l_braz_por:
+ {{prefix}}.0001.t: "{{title}}"
+ {{prefix}}.0001.desc: "Evento de teste do {{title}}."
+ {{prefix}}.0001.a: "OK"

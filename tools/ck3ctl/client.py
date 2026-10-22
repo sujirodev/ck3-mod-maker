@@ -1,21 +1,22 @@
-# Cliente do canal de pedidos da DLL ck3_custom (dll/LEIAME.md): escreve uma linha em ck3_custom_cmd.txt, o
-# carregador le, apaga o arquivo e executa na thread principal do jogo; a resposta sai em ck3_custom_dll.log.
+# Client for the ck3_custom DLL request channel (dll/README.md): writes one line to ck3_custom_cmd.txt, the loader
+# reads it, deletes the file and runs it on the game's main thread; the answer goes to ck3_custom_dll.log.
+# The DLL writes its log in Portuguese; the regexes below match that text on purpose.
 import os, re, time
 from . import config
 
 
-class SemResposta(Exception):
-    """O carregador nao apagou o arquivo de pedidos: jogo fechado, sem a DLL, ou sem -debug_mode."""
+class NoAnswer(Exception):
+    """The loader did not pick up the request file: game closed, no DLL, or no -debug_mode."""
 
 
 class Ck3:
-    def __init__(self, instancia=None):
-        # instancia: varios jogos ao mesmo tempo (AR_INSTANCIA=<x> no ambiente do jogo); log e pedidos proprios
-        suf = '_%s' % instancia if instancia else ''
+    def __init__(self, instance=None):
+        # instance: several games at once (AR_INSTANCIA=<x> in the game's environment); own log and request file
+        suf = '_%s' % instance if instance else ''
         self.log = os.path.join(config.BIN, 'ck3_custom_dll%s.log' % suf)
         self.cmd = os.path.join(config.BIN, 'ck3_custom_cmd%s.txt' % suf)
 
-    # ---- canal ----
+    # ---- channel ----
     def size(self):
         return os.path.getsize(self.log) if os.path.exists(self.log) else 0
 
@@ -23,19 +24,19 @@ class Ck3:
         if not os.path.exists(self.log):
             return ''
         with open(self.log, 'rb') as f:
-            if os.path.getsize(self.log) < pos:   # log recriado (jogo reaberto)
+            if os.path.getsize(self.log) < pos:   # log recreated (game restarted)
                 pos = 0
             f.seek(pos)
             return f.read().decode('latin1')
 
     def send(self, line, timeout=5.0):
         if len(line) > config.CMD_MAX:
-            raise ValueError('pedido com %d letras; o carregador corta em 511 (use um scripted_effect do mod)'
+            raise ValueError('request has %d characters; the loader cuts at 511 (use a scripted_effect in the mod)'
                              % len(line))
         t0 = time.time()
-        while os.path.exists(self.cmd):   # pedido anterior ainda nao lido
+        while os.path.exists(self.cmd):   # previous request not read yet
             if time.time() - t0 > timeout:
-                raise SemResposta('pedido anterior nao foi lido em %.0f s' % timeout)
+                raise NoAnswer('previous request was not read within %.0f s' % timeout)
             time.sleep(0.05)
         with open(self.cmd, 'w', encoding='latin1', newline='\n') as f:
             f.write(line + '\n')
@@ -43,11 +44,11 @@ class Ck3:
         while os.path.exists(self.cmd):
             if time.time() - t0 > timeout:
                 os.remove(self.cmd)
-                raise SemResposta('a DLL nao leu o pedido em %.0f s (jogo aberto com -debug_mode?)' % timeout)
+                raise NoAnswer('the DLL did not read the request within %.0f s (game open with -debug_mode?)' % timeout)
             time.sleep(0.05)
 
     def req(self, line, wait=0.4, until=None, timeout=8.0):
-        """Envia e devolve o que o log ganhou. until: regex que encerra a espera antes de `timeout`."""
+        """Send a request and return what the log gained. until: regex that ends the wait before `timeout`."""
         pos = self.size()
         self.send(line)
         time.sleep(wait)
@@ -68,25 +69,26 @@ class Ck3:
     def alive(self):
         try:
             return 'state:' in self.req('state', 0.2, until=r'state:', timeout=2)
-        except SemResposta:
+        except NoAnswer:
             return False
 
-    # ---- estado do jogo ----
+    # ---- game state ----
     def state(self):
         t = self.req('state', 0.2, until=r'state: .*velocidade=\d+')
         m = re.findall(r'state: (.*?) velocidade=(\d+)', t)
         if not m:
-            return {'ok': False, 'texto': t.strip()}
+            return {'ok': False, 'text': t.strip()}
         s, v = m[-1][0], int(m[-1][1])
-        return {'ok': True, 'texto': s, 'velocidade': v, 'carregado': v > 0, 'correndo': s.startswith('CORRENDO'),
-                'pelo_jogador': '[pelo jogador]' in s, 'evento': 'evento/mensagem' in s, 'outra': '[outra pausa]' in s}
+        return {'ok': True, 'text': s, 'speed': v, 'loaded': v > 0, 'running': s.startswith('CORRENDO'),
+                'paused_by_player': '[pelo jogador]' in s, 'paused_by_event': 'evento/mensagem' in s,
+                'paused_other': '[outra pausa]' in s}
 
     def pause(self, on=True):
         for _ in range(6):
             self.send('pause %d' % (1 if on else 0))
             time.sleep(0.3)
             st = self.state()
-            if st['ok'] and (not st['correndo']) == on:
+            if st['ok'] and (not st['running']) == on:
                 return True
         return False
 
@@ -96,88 +98,88 @@ class Ck3:
     def info(self):
         return self.req('info', 0.2, until=r'info:')
 
-    def _carregado(self):
+    def _require_loaded(self):
         st = self.state()
-        if not st['ok'] or not st['carregado']:
-            # efeito durante a carga derruba o jogo (C0000005 em exe+0xe3ea3e)
-            raise RuntimeError('partida nao carregada (%s); efeito agora derrubaria o jogo' % st.get('texto'))
+        if not st['ok'] or not st['loaded']:
+            # an effect while a save is loading crashes the game (C0000005 at exe+0xe3ea3e)
+            raise RuntimeError('no save loaded (%s); an effect now would crash the game' % st.get('text'))
 
     # ---- script ----
     def effect(self, text):
-        """Roda um efeito de script no personagem do jogador. Devolve (ok, mensagem, log)."""
-        self._carregado()
+        """Run a script effect on the player character. Returns (ok, message, log)."""
+        self._require_loaded()
         t = self.req('efeito ' + text, 0.3, until=r'console: (direto: |efeito recusado)')
         m = re.findall(r'console: direto: (ok|FALHOU)(?:: (.*))?', t)
         if not m:
-            return False, (re.findall(r'console: (efeito recusado.*)', t) or ['sem resposta'])[-1], t
+            return False, (re.findall(r'console: (efeito recusado.*)', t) or ['no answer'])[-1], t
         return m[-1][0] == 'ok', m[-1][1], t
 
     def eval(self, value, scope=None):
-        """Valor de script (ex.: 'gold', 'var:x', 'num_of_relation_friend') no jogador ou no escopo dado
-        (ex.: 'character:123', 'title:k_france.holder'). Le pelo efeito ck3_custom_ping do nucleo."""
+        """Script value (e.g. 'gold', 'var:x', 'num_of_relation_friend') on the player or on the given scope
+        (e.g. 'character:123', 'title:k_france.holder'). Read through the core's ck3_custom_ping effect."""
         eff = 'ck3_custom_ping = %s' % value
         if scope:
             eff = '%s = { %s }' % (scope, eff)
         return self.eval_raw(eff)
 
     def trigger(self, text, scope=None):
-        """Testa um trigger de script no jogador (ou no escopo). True/False."""
+        """Test a script trigger on the player (or the scope). True/False."""
         inner = 'if = { limit = { %s } ck3_custom_ping = 1 } else = { ck3_custom_ping = 0 }' % text
         return self.eval_raw(inner if not scope else '%s = { %s }' % (scope, inner)) == 1
 
     def eval_raw(self, eff):
-        """Roda o efeito e devolve o ultimo valor de ck3_custom_ping que ele gravou."""
-        ok, msg, t = self.effect(eff)   # o ping roda dentro do efeito: a linha dele vem antes de "direto: ok"
-        v =re.findall(r'efeito ck3_custom_ping: .*?valor=([-0-9.]+)', t)
+        """Run the effect and return the last ck3_custom_ping value it logged."""
+        ok, msg, t = self.effect(eff)   # the ping runs inside the effect: its line comes before "direto: ok"
+        v = re.findall(r'efeito ck3_custom_ping: .*?valor=([-0-9.]+)', t)
         if not ok or not v:
-            raise RuntimeError('falhou: %s' % (msg or 'sem valor no log'))
+            raise RuntimeError('failed: %s' % (msg or 'no value in the log'))
         return float(v[-1])
 
-    def var(self, tipo, ident, nome, valor=None, dias=None, apagar=False):
-        """Variavel de script no objeto: tipo 'char'|'prov'|'army' ou numero (4, 8, 0x1b)."""
-        tipo = {'char': 4, 'prov': 8, 'army': 0x1b}.get(tipo, tipo)
-        line = 'var %s %s %s' % (tipo, ident, nome)
-        if apagar:
+    def var(self, kind, ident, name, value=None, days=None, delete=False):
+        """Script variable on an object: kind 'char'|'prov'|'army' or a number (4, 8, 0x1b)."""
+        kind = {'char': 4, 'prov': 8, 'army': 0x1b}.get(kind, kind)
+        line = 'var %s %s %s' % (kind, ident, name)
+        if delete:
             line += ' del'
-        elif valor is not None:
-            line += ' set %s%s' % (valor, ' %d' % dias if dias else '')
-        return self.req(line, 0.2, until=r'var %s' % re.escape(nome))
+        elif value is not None:
+            line += ' set %s%s' % (value, ' %d' % days if days else '')
+        return self.req(line, 0.2, until=r'var %s' % re.escape(name))
 
     def console(self, text):
         return self.req('console ' + text, 0.4, until=r'console:')
 
-    # ---- eventos, saves, plugins ----
+    # ---- events, saves, plugins ----
     def events(self, answer=False, option=0):
         return self.req('events answer %d' % option if answer else 'events', 0.3, until=r'events: ')
 
     def save(self):
         return self.req('salvar', 0.5, until=r'salvar')
 
-    def load(self, nome, timeout=300):
-        """Recarrega save games/<nome>.ck3 com o jogo aberto (~15 s) e espera a partida pausada."""
+    def load(self, name, timeout=300):
+        """Reload save games/<name>.ck3 with the game open (~15 s) and wait for the paused game."""
         self.pause(True)
-        t = self.req('carregar save games/%s.ck3' % nome.removesuffix('.ck3'), 1.0, until=r'carregar: ')
+        t = self.req('carregar save games/%s.ck3' % name.removesuffix('.ck3'), 1.0, until=r'carregar: ')
         if 'pedido enviado' not in t:
-            raise RuntimeError('carregar falhou: %s' % t.strip())
-        return self.wait_loaded(timeout, inicio=6)
+            raise RuntimeError('load failed: %s' % t.strip())
+        return self.wait_loaded(timeout, initial=6)
 
-    def wait_loaded(self, timeout=600, inicio=0):
-        time.sleep(inicio)
+    def wait_loaded(self, timeout=600, initial=0):
+        time.sleep(initial)
         t0 = time.time()
         while time.time() - t0 < timeout:
             try:
                 st = self.state()
-                if st['ok'] and st['carregado'] and not st['correndo']:
+                if st['ok'] and st['loaded'] and not st['running']:
                     return st
-            except SemResposta:
+            except NoAnswer:
                 pass
             time.sleep(3)
-        raise TimeoutError('partida nao carregou em %d s' % timeout)
+        raise TimeoutError('save did not load within %d s' % timeout)
 
-    def plugins(self, recompilar=False):
-        return self.req('plugin recompilar' if recompilar else 'plugin', 0.5 if recompilar else 0.2,
+    def plugins(self, recompile=False):
+        return self.req('plugin recompilar' if recompile else 'plugin', 0.5 if recompile else 0.2,
                         until=r'plugin', timeout=10)
 
-    def faults(self, desde=0):
-        """Linhas FALHA CONTIDA no log da DLL a partir da posicao `desde`."""
-        return [l for l in self.since(desde).splitlines() if 'FALHA CONTIDA' in l]
+    def faults(self, since=0):
+        """FALHA CONTIDA (contained fault) lines in the DLL log from position `since`."""
+        return [l for l in self.since(since).splitlines() if 'FALHA CONTIDA' in l]

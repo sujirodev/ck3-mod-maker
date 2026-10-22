@@ -1,0 +1,4 @@
+﻿l_english:
+ {{prefix}}.0001.t: "{{title}}"
+ {{prefix}}.0001.desc: "Test event of {{title}}."
+ {{prefix}}.0001.a: "OK"

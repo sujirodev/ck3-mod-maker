@@ -1,12 +1,13 @@
-# Compilar e instalar a DLL ck3_custom (dll/LEIAME.md).
+# Build and install the ck3_custom DLL (dll/README.md).
 import hashlib, json, os, shutil, subprocess, time
 from . import config, game
 
-# o build do gcc nao e reproduzivel byte a byte: a instalacao registra o hash da fonte e do binario instalado
-FONTES = {'carregador': ['ar_proxy.c', 'exports.h', 'proxy.def', 'ar_host.h'],
-          'nucleo': ['ar_core.c', 'ck3_api.h', 'ar_host.h']}
-BINS = {'carregador': 'winmm.dll', 'nucleo': 'ck3_custom_core.dll'}
-REGISTRO = os.path.join(config.BIN, 'ck3_custom', 'instalado.json')
+PARTS = ('loader', 'core', 'all')
+# gcc builds are not byte-for-byte reproducible: install records the hash of the source and of the installed binary
+SOURCES = {'loader': ['ar_proxy.c', 'exports.h', 'proxy.def', 'ar_host.h'],
+           'core': ['ar_core.c', 'ck3_api.h', 'ar_host.h']}
+BINS = {'loader': 'winmm.dll', 'core': 'ck3_custom_core.dll'}
+RECORD = os.path.join(config.BIN, 'ck3_custom', 'installed.json')
 
 
 def sha(*paths):
@@ -16,23 +17,23 @@ def sha(*paths):
     return h.hexdigest()[:16]
 
 
-def fonte_sha(parte):
-    return sha(*[os.path.join(config.DLL_SRC, f) for f in FONTES[parte]])
+def source_sha(part):
+    return sha(*[os.path.join(config.DLL_SRC, f) for f in SOURCES[part]])
 
 
-def registro():
-    return json.load(open(REGISTRO, encoding='utf-8')) if os.path.exists(REGISTRO) else {}
+def record():
+    return json.load(open(RECORD, encoding='utf-8')) if os.path.exists(RECORD) else {}
 
 
-def build(parte='todas'):
-    """parte: 'carregador' (winmm.dll), 'nucleo' (ck3_custom_core.dll) ou 'todas'. Devolve (ok, saida)."""
+def build(part='all'):
+    """part: 'loader' (winmm.dll), 'core' (ck3_custom_core.dll) or 'all'. Returns (ok, output)."""
     os.makedirs(config.DLL_BUILD, exist_ok=True)
     tcc = config.TINYCC.replace('\\', '/')
     cmds = []
-    if parte in ('carregador', 'todas'):
+    if part in ('loader', 'all'):
         cmds.append(['gcc', '-shared', '-O2', '-Wall', '-Wno-format-truncation', '-Wno-restrict', '-static',
                      '-o', 'build/winmm.dll', 'ar_proxy.c', 'proxy.def'])
-    if parte in ('nucleo', 'todas'):
+    if part in ('core', 'all'):
         cmds.append(['gcc', '-shared', '-O2', '-Wall', '-Wno-format-truncation', '-Wno-restrict', '-static',
                      '-I' + tcc, '-o', 'build/ck3_custom_core.dll', 'ar_core.c', tcc + '/win32/libtcc.o'])
     out = ''
@@ -44,47 +45,47 @@ def build(parte='todas'):
     return True, out
 
 
-def install(parte='nucleo'):
-    """Copia para C:\\CK3\\binaries. O nucleo troca com o jogo aberto em -debug_mode; o carregador exige o jogo
-    fechado. Sempre leva o ck3_api.h para ck3_custom\\include (os plugins incluem de la)."""
-    feito = []
-    if parte in ('carregador', 'todas'):
+def install(part='core'):
+    """Copy to C:\\CK3\\binaries. The core can be swapped with the game open in -debug_mode; the loader needs the
+    game closed. Always copies ck3_api.h to ck3_custom\\include (plugins include it from there)."""
+    done = []
+    if part in ('loader', 'all'):
         if game.running():
-            raise RuntimeError('o carregador (winmm.dll) so pode ser trocado com o jogo fechado')
+            raise RuntimeError('the loader (winmm.dll) can only be replaced with the game closed')
         dst = os.path.join(config.BIN, 'winmm.dll')
         if os.path.exists(dst):
-            shutil.copy(dst, dst + '.anterior')
+            shutil.copy(dst, dst + '.previous')
         shutil.copy(os.path.join(config.DLL_BUILD, 'winmm.dll'), dst)
-        feito.append('winmm.dll')
-    if parte in ('nucleo', 'todas'):
+        done.append('winmm.dll')
+    if part in ('core', 'all'):
         dst = os.path.join(config.BIN, 'ck3_custom_core.dll')
         if os.path.exists(dst):
-            shutil.copy(dst, dst + '.anterior')
+            shutil.copy(dst, dst + '.previous')
         shutil.copy(os.path.join(config.DLL_BUILD, 'ck3_custom_core.dll'), dst)
-        feito.append('ck3_custom_core.dll')
+        done.append('ck3_custom_core.dll')
     inc = os.path.join(config.BIN, 'ck3_custom', 'include')
     if not os.path.isdir(inc):
-        # primeira instalacao: cabecalhos e libtcc1.a do TinyCC
+        # first install: TinyCC headers and libtcc1.a
         shutil.copytree(os.path.join(config.TINYCC, 'win32', 'include'), inc)
         os.makedirs(os.path.join(config.BIN, 'ck3_custom', 'lib'), exist_ok=True)
         shutil.copy(os.path.join(config.TINYCC, 'win32', 'lib', 'libtcc1.a'), os.path.join(config.BIN, 'ck3_custom', 'lib'))
-        feito.append('ck3_custom/include + lib (TinyCC)')
+        done.append('ck3_custom/include + lib (TinyCC)')
     shutil.copy(os.path.join(config.DLL_SRC, 'ck3_api.h'), inc)
-    feito.append('ck3_custom/include/ck3_api.h')
-    reg = registro()
+    done.append('ck3_custom/include/ck3_api.h')
+    rec = record()
     for p in BINS:
-        if BINS[p] in feito:
-            reg[p] = {'fonte': fonte_sha(p), 'binario': sha(os.path.join(config.BIN, BINS[p])),
-                      'data': time.strftime('%Y-%m-%d %H:%M')}
-    with open(REGISTRO, 'w', encoding='utf-8') as f:
-        json.dump(reg, f, indent=1)
-    return feito
+        if BINS[p] in done:
+            rec[p] = {'source': source_sha(p), 'binary': sha(os.path.join(config.BIN, BINS[p])),
+                      'date': time.strftime('%Y-%m-%d %H:%M')}
+    with open(RECORD, 'w', encoding='utf-8') as f:
+        json.dump(rec, f, indent=1)
+    return done
 
 
 def status():
     def info(p):
-        return {'existe': os.path.exists(p), 'tamanho': os.path.getsize(p) if os.path.exists(p) else 0}
-    return {'jogo': game.version(), 'esperado': config.CK3_VERSION,
-            'carregador': info(os.path.join(config.BIN, 'winmm.dll')),
-            'nucleo': info(os.path.join(config.BIN, 'ck3_custom_core.dll')),
+        return {'exists': os.path.exists(p), 'size': os.path.getsize(p) if os.path.exists(p) else 0}
+    return {'game': game.version(), 'expected': config.CK3_VERSION,
+            'loader': info(os.path.join(config.BIN, 'winmm.dll')),
+            'core': info(os.path.join(config.BIN, 'ck3_custom_core.dll')),
             'api_h': info(os.path.join(config.BIN, 'ck3_custom', 'include', 'ck3_api.h'))}

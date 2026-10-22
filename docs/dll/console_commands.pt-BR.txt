@@ -1,0 +1,28 @@
+Versao em ingles: console_commands.txt
+
+Comandos de console relevantes ao Auto Raid
+Fonte: textos embutidos em C:\CK3\binaries\ck3.exe (console_command_implementation.cpp).
+`help`/`helplog` nao gravaram saida em nenhum log nesta versao (testado 2026-10-03).
+
+Movimento
+- instamove      "Instant army movement" (cheat de velocidade, nao da ordem)
+- quickmove      "units and travels move one province each day" (cheat de velocidade)
+- verify_ai_path "Verify an AI unit's path" (debug)
+Nenhum comando de ordem de marcha.
+
+IA
+- set_is_ai      "Set a character to be controlled by an AI" (personagem inteiro)
+- AI.Enable      "enables the AI of a character"
+- AI.Disable     "disables the AI of a character"
+- AI.ToggleAll / AI.Toggle*  liga/desliga modulos da IA (global)
+- aiwatch, ai_war_coordinator_watch  janelas de debug da IA
+
+Script
+- effect {effect script}   executa efeito (root = personagem jogado)
+- trigger {trigger script} testa trigger
+- script_docs              gera effects.log, triggers.log, on_actions.log, event_targets.log em logs\
+
+Outros
+- move_unit NAO e comando de console: e o tipo de comando interno de rede gerado pelo clique do jogador
+  (aparece em logs\message.log como "Type: move_unit"). Digitar no console: unknown command.
+- Historico do console: Documents\Paradox Interactive\Crusader Kings III\console_history.txt

@@ -1,98 +1,111 @@
 # ck3-mod-maker
 
-Repositorio agentico para criar mods de Crusader Kings III. O Claude escreve o mod, abre o jogo, testa e depura
-sozinho pela DLL `ck3_custom`, que da acesso ao jogo aberto (efeitos, valores, eventos, saves, logs).
+Agent-driven repository for making Crusader Kings III mods. Claude writes the mod, starts the game, tests and debugs
+it on its own through the `ck3_custom` DLL, which gives access to the running game (effects, values, events, saves,
+logs).
 
-Repositorio publico, feito para estudo: nao escrever aqui segredo, chave de API, dado pessoal nem conteudo do jogo
-(o `reference/` e os binarios ficam fora do git por isso).
+Public repository, built for study: never write secrets, API keys, personal data or game content here (that is why
+`reference/` and the binaries stay out of git).
 
-Responder sempre em portugues do Brasil.
+Language: always answer the user in Brazilian Portuguese. Everything written to this repository and to mod
+repositories (code, comments, docs, commit messages) is in English; documents meant for people keep a Portuguese
+translation next to them as `<name>.pt-BR.md` (update both when you change one).
 
-## Regra principal: mod em script; plugin C e a ultima opcao
-A DLL tem dois papeis, e so um deles e livre:
-- **Ferramenta de desenvolvimento (sempre):** o Claude usa a DLL para testar e depurar qualquer mod (efeitos,
-  valores, eventos, saves, logs). O jogador nunca precisa dela por causa disso.
-- **Dependencia do mod (ultima opcao):** plugin C (`plugin/plugin.txt` + `.c`) ou aba Mods (`plugin/config.txt`)
-  fazem o mod publicado exigir a DLL, que so funciona numa versao exata do jogo (1.19.0.6), quebra a cada patch e
-  executa codigo nativo na maquina do jogador. O Auto Raid so usa plugin porque nao havia outro caminho (ordem de
-  marcha real, pathfinder e previsao de combate nao existem no script).
+## Main rule: mods in script; a C plugin is the last resort
+The DLL has two roles, and only one of them is free:
+- **Development tool (always):** Claude uses the DLL to test and debug any mod (effects, values, events, saves,
+  logs). Players never need it because of this.
+- **Mod dependency (last resort):** a C plugin (`plugin/plugin.txt` + `.c`) or the Mods tab (`plugin/config.txt`)
+  makes the published mod require the DLL, which only works on one exact game build (1.19.0.6), breaks with every
+  patch and runs native code on the player's machine. Auto Raid only uses a plugin because there was no other way
+  (real march orders, the pathfinder and combat prediction do not exist in script).
 
-Antes de propor plugin C ou aba Mods:
-1. Esgotar o script do jogo: efeitos, triggers, script_values, scripted_guis, game rules (`common/game_rules`) para
-   opcoes do jogador, decisoes, eventos, on_actions. Procurar no jogo base (`ck3_vanilla`) como a Paradox resolve
-   algo parecido.
-2. Se ainda nao der, mostrar ao usuario o que o script nao alcanca (com a evidencia: efeito/trigger que falta) e o
-   custo da dependencia, e so seguir com o plugin depois que ele aprovar.
-3. Opcoes do jogador vao em game rule, nao na aba Mods, salvo pedido explicito.
+Before proposing a C plugin or the Mods tab:
+1. Exhaust game script: effects, triggers, script_values, scripted_guis, game rules (`common/game_rules`) for player
+   options, decisions, events, on_actions. Look in the vanilla game (`ck3_vanilla`) for how Paradox solves something
+   similar.
+2. If it still cannot be done, show the user what script cannot reach (with evidence: the missing effect/trigger) and
+   the cost of the dependency, and only go ahead with the plugin after the user approves.
+3. Player options go into a game rule, not the Mods tab, unless explicitly asked.
 
-## Mapa
-| Pasta | O que e |
+## Map
+| Folder | What it is |
 |---|---|
-| `dll/` | Fonte da DLL `ck3_custom` (carregador `winmm.dll` + nucleo `ck3_custom_core.dll` + `ck3_api.h` dos plugins). Pedidos e efeitos em `dll/LEIAME.md`; arquitetura em `docs/dll/arquitetura_dll.md`; enderecos e engenharia reversa em `docs/dll/re*` |
-| `tools/ck3ctl/` | Biblioteca Python, CLI (`uv run ck3ctl ...`) e servidor MCP `ck3` (ferramentas `mcp__ck3__*`) |
-| `pipeline/` + `.github/workflows/mod-release.yml` | Pipeline de release compartilhado (zip, changelog, GitHub Release, Nexus), chamado pelo `release.yml` de cada mod numa tag fixa (`v1`) |
-| `templates/` | `repo` (repo de mod, padrao do guardian_calc_assistant, com `dev/` e `CLAUDE.md`), `plugin` e `config` (ultima opcao) |
-| `reference/` | Gerado (fora do git): `script_docs` do jogo indexado (`ck3ctl ref build`) |
-| `.claude/skills/`, `.claude/agents/` | Fluxos (novo-mod, testar-em-jogo, debugar, novo-plugin-c, publicar) e especialistas |
+| `dll/` | Source of the `ck3_custom` DLL (loader `winmm.dll` + core `ck3_custom_core.dll` + `ck3_api.h` for plugins). Requests and effects in `dll/README.md`; architecture in `docs/dll/arquitetura_dll.md`; addresses and reverse engineering in `docs/dll/re*` |
+| `tools/ck3ctl/` | Python library, CLI (`uv run ck3ctl ...`) and the `ck3` MCP server (`mcp__ck3__*` tools) |
+| `pipeline/` + `.github/workflows/mod-release.yml` | Shared release pipeline (zip, changelog, GitHub Release, Nexus), called by each mod's `release.yml` at a fixed tag (`v1`) |
+| `templates/` | `repo` (mod repository, guardian_calc_assistant pattern, with `dev/` and `CLAUDE.md`), `plugin` and `config` (last resort) |
+| `reference/` | Generated (not in git): the game's `script_docs` indexed (`ck3ctl ref build`) |
+| `.claude/skills/`, `.claude/agents/` | Workflows (new-mod, test-in-game, debug-mod, c-plugin, release-mod) and specialists |
 
-## Mods sao repositorios separados
-Cada mod e um repo git proprio, por padrao direto em `Documents\Paradox Interactive\Crusader Kings III\mod\<nome>`
-(o jogo le dali), no padrao do guardian_calc_assistant: conteudo do jogo na raiz; `README.md`, `CHANGELOG.md`,
-`CONTRIBUTING.md`, `LICENSE` e `docs/` em ingles; `ck3mod.toml` (o que entra no zip); `.github/workflows/release.yml`
-de poucas linhas chamando o pipeline compartilhado. O repo e autossuficiente: carrega o proprio estado em `dev/`
-(`features.json`, `progress.md`, `decisions.md`, em ingles) e um `CLAUDE.md` com as regras, para qualquer pessoa ou
-agente contribuir so com o repo do mod. O ck3-mod-maker nao guarda registro: acha os mods em `mod/` pelo `ck3mod.toml`.
-- Criar: `ck3ctl mod new <nome> "<Titulo>" --prefixo <curto> --resumo "<one line>"`. Prefixo curto em tudo que o
-  mod cria (ex.: `tnt_ga`). Mod que ja existe: `ck3ctl mod init <nome> --prefixo <p>` (acrescenta
-  `ck3mod.toml`, `CLAUDE.md` e `dev/` sem sobrescrever nada).
-- Push, tag e release do repo de um mod sao acoes externas: so com o pedido do usuario.
-- Mudanca no `pipeline/` que muda comportamento: nova tag (`v2`) e os mods migram um a um trocando o ref no
-  `release.yml`; nunca mover uma tag ja usada.
+The DLL itself speaks Portuguese and that stays: its request names (`carregar`, `salvar`, `velocidade`, `efeito`...),
+log lines (`state: PAUSADO`, `FALHA CONTIDA`...) and the manifest/config keywords (`nome`, `fonte`, `livre`, `liga`,
+`inteiro`...) are parsed by ck3ctl, by Auto Raid and by the DLL. The C sources keep Portuguese comments for now.
 
-Caminhos da maquina em `tools/ck3ctl/config.py`: jogo em `C:\CK3` (so a versao 1.19.0.6, a unica que a DLL
-conhece), dados em `Documents\Paradox Interactive\Crusader Kings III`, TinyCC em `~\src\tinycc`.
+## Mods are separate repositories
+Each mod is its own git repo, by default straight in `Documents\Paradox Interactive\Crusader Kings III\mod\<name>`
+(the game reads it from there), following the guardian_calc_assistant pattern: game content at the root; `README.md`,
+`CHANGELOG.md`, `CONTRIBUTING.md`, `LICENSE` and `docs/`; `ck3mod.toml` (what goes into the zip); a few-line
+`.github/workflows/release.yml` that calls the shared pipeline. The repo is self-contained: it carries its own state in
+`dev/` (`features.json`, `progress.md`, `decisions.md`) and a `CLAUDE.md` with its rules, so anyone (person or agent)
+can contribute with the mod repo alone. ck3-mod-maker keeps no registry: it finds mods in `mod/` by their
+`ck3mod.toml`.
+- Create: `ck3ctl mod new <name> "<Title>" --prefix <short> --summary "<one line>"`. A short prefix on everything the
+  mod creates (e.g. `tnt_ga`). Existing mod: `ck3ctl mod init <name> --prefix <p>` (adds `ck3mod.toml`, `CLAUDE.md`
+  and `dev/` without overwriting anything).
+- Push, tag and release of a mod repo are external actions: only when the user asks.
+- A `pipeline/` change that alters behavior: new tag (`v2`), and mods migrate one by one by changing the ref in their
+  `release.yml`; never move a tag that is already in use.
+- First release of a mod: add it to the "Mods built with ck3-mod-maker" table in `README.md` and
+  `README.pt-BR.md`; the mod's README carries the "Built with ck3-mod-maker" line.
 
-## Como trabalhar
-1. Duvida de script (efeito, trigger, escopo, on_action): `mcp__ck3__ck3_ref` e `ck3_vanilla` antes de escrever.
-   Nunca inventar efeito ou trigger; o jogo base em `C:\CK3\game` e a fonte da verdade.
-2. Editou arquivo de mod: o hook confere chaves, BOM e localizacao; corrigir o que ele apontar.
-3. Antes de abrir o jogo: `ck3ctl mod check <nome>`.
-4. No jogo: `ck3_mark` -> acao -> `ck3_errors(mod=...)` e `ck3_dll_log`. Valor e condicao: `ck3_eval` / `ck3_trigger`.
-5. Escolha de caminho: ver "Regra principal" acima. Plugin C so com aprovacao do usuario.
+Machine paths in `tools/ck3ctl/config.py`: game in `C:\CK3` (only build 1.19.0.6, the one the DLL knows), user data
+in `Documents\Paradox Interactive\Crusader Kings III`, TinyCC in `~\src\tinycc`.
 
-## Sessao (estado fica em arquivo, nao na conversa)
-Cada repo de mod tem `dev/features.json` (features com status, como testar e evidencia) e `dev/progress.md` (estado
-atual e proximo passo, reescrito, nunca um historico crescente). O hook valida o `features.json`. Sao do mod:
-escrever em ingles, como o resto do repo.
-- Inicio: `ck3_doctor`; para trabalhar num mod, `ck3_mod(acao="status", nome)`.
-- Durante: uma feature `in_progress` por vez. `done` so com evidencia do teste rodado (data, comando, resultado);
-  "parece funcionar" nao conta. Sem como testar ainda: fica `in_progress` ou `blocked` com o motivo.
-- Fim (ou antes de parar por bloqueio): atualizar `dev/features.json`, reescrever `dev/progress.md`, decisoes
-  duradouras em `dev/decisions.md`.
+## How to work
+1. Script question (effect, trigger, scope, on_action): `mcp__ck3__ck3_ref` and `ck3_vanilla` before writing. Never
+   invent an effect or trigger; the vanilla game in `C:\CK3\game` is the source of truth.
+2. After editing a mod file: the hook checks braces, BOM and localization; fix what it reports.
+3. Before starting the game: `ck3ctl mod check <name>`.
+4. In game: `ck3_mark` -> action -> `ck3_errors(mod=...)` and `ck3_dll_log`. Values and conditions: `ck3_eval` /
+   `ck3_trigger`.
+5. Choosing the approach: see "Main rule" above. A C plugin only with the user's approval.
 
-## Regras do jogo e da DLL (aprendidas no Auto Raid; quebrar custa uma queda do jogo)
-- Efeito ou console so com a partida carregada e pausada: durante a carga (`state` com velocidade 0) um efeito
-  derruba o jogo (C0000005 em `exe+0xe3ea3e`). `ck3ctl` ja confere antes do `effect`.
-- Pedido ate ~500 letras (o carregador corta em 511). Efeito maior: criar um `scripted_effect` no mod e chama-lo.
-- Trocar de save sem reabrir: `ck3_save_load(load, nome)` (~15 s). Reabrir o processo (~3 min) so quando
-  obrigatorio: carregador novo, efeito/variavel nova no `plugin.txt`, mudanca no `dlc_load.json`. Juntar essas
-  necessidades numa reabertura so.
-- Com `-debug_mode` o jogo recarrega script, localizacao e plugin C a quente. Nao editar o mod com o jogo correndo
-  numa rodada de teste (ja derrubou o jogo): pausar, editar, recarregar o save.
-- `reload gui` pelo console le `.gui` novo sem reabrir.
-- Cliques sinteticos nao chegam ao jogo (o Windows nao traz o jogo para a frente). Teste de interface: pedir o clique
-  ao usuario e conferir pela DLL/logs.
-- Rodadas longas no jogo e baterias: `run_in_background`, nunca em primeiro plano.
-- Telas que pausam o jogo (eventos, sucessao): `ck3_events(responder=True)`; anotar o que foi respondido.
-- Sem graficos (`-nographics`): `console event <id>` nao funciona; usar `effect trigger_event = <id>` ou o
-  conteudo do evento. Padrao: com graficos.
-- Saves de teste: copiar antes de alterar; nunca mexer nos saves de jogo do usuario sem pedir.
-- Depois de "FALHA CONTIDA" no log da DLL o estado do jogo pode estar inconsistente: nao salvar por cima.
+## Session (state lives in files, not in the conversation)
+Each mod repo has `dev/features.json` (features with status, how to test and evidence) and `dev/progress.md` (current
+state and next step, rewritten, never a growing history). The hook validates `features.json`.
+- Start: `ck3_doctor`; to work on a mod, `ck3_mod(action="status", name)`.
+- During: one feature `in_progress` at a time. `done` only with evidence from a check that was run (date, command,
+  result); "seems to work" does not count. No way to test yet: keep it `in_progress` or `blocked` with the reason.
+- End (or before stopping on a blocker): update `dev/features.json`, rewrite `dev/progress.md`, lasting decisions
+  in `dev/decisions.md`.
+
+## Game and DLL rules (learned on Auto Raid; breaking them costs a game crash)
+- Effects or console only with a save loaded and paused: during a load (`state` with speed 0) an effect crashes the
+  game (C0000005 at `exe+0xe3ea3e`). `ck3ctl` already checks before `effect`.
+- Requests up to ~500 characters (the loader cuts at 511). Longer effect: create a `scripted_effect` in the mod and
+  call it.
+- Switch saves without restarting: `ck3_save_load(load, name)` (~15 s). Restart the process (~3 min) only when
+  required: new loader, new effect/variable in `plugin.txt`, a change to `dlc_load.json`. Batch those needs into a
+  single restart.
+- With `-debug_mode` the game hot-reloads script, localization and C plugins. Do not edit the mod while the game is
+  running a test round (it has crashed the game): pause, edit, reload the save.
+- `reload gui` in the console reads a new `.gui` without restarting.
+- Synthetic clicks do not reach the game (Windows does not bring it to the front). UI tests: ask the user to click
+  and check through the DLL/logs.
+- Long game rounds and test batteries: `run_in_background`, never in the foreground.
+- Screens that pause the game (events, succession): `ck3_events(answer=True)`; write down what was answered.
+- Without graphics (`-nographics`): `console event <id>` does not work; use `effect trigger_event = <id>` or the
+  event's content. Default: with graphics.
+- Test saves: copy before changing; never touch the user's own saves without asking.
+- After "FALHA CONTIDA" (contained fault) in the DLL log the game state may be inconsistent: do not save over
+  anything.
 
 ## DLL
-- `uv run ck3ctl dll build [nucleo|carregador]` e `dll install`. O nucleo troca com o jogo aberto em `-debug_mode`;
-  o carregador so com o jogo fechado.
-- Mudou a `ck3_api` (nova funcao): subir `CK3_API_VERSION`, documentar em `dll/ck3_api.h` e `dll/LEIAME.md`, e
-  atualizar `CK3_API` em `tools/ck3ctl/validate.py`. Plugin de api diferente nao carrega.
-- Nenhum nome de mod (`auto_raid_`, `ar_` etc.) dentro do nucleo: o que e de um mod vai no plugin do mod.
-- O Auto Raid (`Documents\...\mod\auto_raid`) e o primeiro mod que usa a DLL; mudanca na DLL nao pode quebra-lo.
+- `uv run ck3ctl dll build [core|loader|all]` and `dll install`. The core can be swapped with the game open in
+  `-debug_mode`; the loader only with the game closed.
+- `ck3_api` changed (new function): bump `CK3_API_VERSION`, document it in `dll/ck3_api.h` and `dll/README.md`
+  (and `dll/README.pt-BR.md`), and update `CK3_API` in `tools/ck3ctl/validate.py`. A plugin with a different api
+  does not load.
+- No mod names (`auto_raid_`, `ar_` etc.) inside the core: what belongs to a mod goes into that mod's plugin.
+- Auto Raid (`Documents\...\mod\auto_raid`) is the first mod using the DLL; DLL changes must not break it.

@@ -1,0 +1,5 @@
+﻿l_english:
+ {{name}}_cfg_titulo: "{{title}}"
+ {{name}}_cfg_grupo_geral: "General"
+ {{name}}_cfg_ligado: "Enabled"
+ {{name}}_cfg_ligado_TOOLTIP: "Turns {{title}} on or off."

@@ -1,12 +1,11 @@
-# Referencia do jogo: documentacao gerada pelo `script_docs` (efeitos, triggers, on_actions, event targets,
-# modificadores, data types) indexada em reference/index.json, e busca nos arquivos do jogo base.
+# Game reference: the `script_docs` output (effects, triggers, on_actions, event targets, modifiers, data types)
+# indexed in reference/index.json, plus search in the vanilla game files.
 import json, os, re, shutil, time
 from . import config
 
 DOCS = {'effect': 'effects.log', 'trigger': 'triggers.log', 'on_action': 'on_actions.log',
         'event_target': 'event_targets.log', 'event_scope': 'event_scopes.log', 'modifier': 'modifiers.log'}
 INDEX = os.path.join(config.REFERENCE, 'index.json')
-SCRIPT_DIRS = ('common', 'events', 'gui', 'localization', 'history', 'map_data', 'gfx')
 
 
 def _entries(kind, text):
@@ -39,7 +38,7 @@ def _data_types():
 
 
 def build(refresh_with=None):
-    """Monta o indice a partir de logs/ do jogo. refresh_with: um Ck3 para rodar `script_docs` antes (jogo aberto)."""
+    """Build the index from the game's logs/. refresh_with: a Ck3 to run `script_docs` first (game open)."""
     if refresh_with is not None:
         refresh_with.console('script_docs')
         time.sleep(8)
@@ -53,7 +52,7 @@ def build(refresh_with=None):
         out += list(_entries(kind, open(p, encoding='utf-8', errors='replace').read()))
     out += list(_data_types())
     with open(INDEX, 'w', encoding='utf-8') as f:
-        json.dump({'gerado': time.strftime('%Y-%m-%d %H:%M'), 'entradas': out}, f, ensure_ascii=False)
+        json.dump({'built': time.strftime('%Y-%m-%d %H:%M'), 'entries': out}, f, ensure_ascii=False)
     counts = {}
     for e in out:
         counts[e['kind']] = counts.get(e['kind'], 0) + 1
@@ -61,13 +60,13 @@ def build(refresh_with=None):
 
 
 def _load():
-    if not os.path.exists(INDEX):
+    if not os.path.exists(INDEX) or 'entries' not in open(INDEX, encoding='utf-8').read(200):
         build()
-    return json.load(open(INDEX, encoding='utf-8'))['entradas']
+    return json.load(open(INDEX, encoding='utf-8'))['entries']
 
 
 def lookup(term, kind=None, limit=20, full=False):
-    """Busca por nome (exato primeiro, depois contem, depois no texto). term pode ser regex."""
+    """Search by name (exact first, then contains, then in the text). term may be a regex."""
     rx = re.compile(term, re.I)
     exact, name, body = [], [], []
     for e in _load():
@@ -83,7 +82,7 @@ def lookup(term, kind=None, limit=20, full=False):
 
 
 def grep_vanilla(pattern, subdir='', glob_ext=('.txt', '.gui', '.yml'), limit=50, context=0):
-    """Procura no jogo base (C:\\CK3\\game). subdir ex.: 'common/scripted_effects', 'events'."""
+    """Search the vanilla game (C:\\CK3\\game). subdir e.g. 'common/scripted_effects', 'events'."""
     rx = re.compile(pattern)
     root = os.path.join(config.VANILLA, subdir)
     hits = []

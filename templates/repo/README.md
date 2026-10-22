@@ -1,6 +1,6 @@
-# {{titulo}}
+# {{title}}
 
-A mod for **Crusader Kings III** that {{resumo}}.
+A mod for **Crusader Kings III** that {{summary}}.
 
 Built with [ck3-mod-maker](https://github.com/{{pipeline_repo}}), a study project for agent-driven CK3 modding.
 
@@ -10,7 +10,7 @@ Built with [ck3-mod-maker](https://github.com/{{pipeline_repo}}), a study projec
 
 ## Compatibility
 
-- Game version: {{jogo}}.
+- Game version: {{game}}.
 - Languages: English and Brazilian Portuguese (Portuguese needs the community PT-BR translation, which adds `braz_por`).
 - Overwritten vanilla files: none.
 

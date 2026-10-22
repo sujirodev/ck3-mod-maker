@@ -1,6 +1,6 @@
-# {{titulo}}
+# {{title}}
 
-Crusader Kings III mod (`{{nome}}`, prefix `{{prefixo}}`). This file is for AI coding agents and contributors.
+Crusader Kings III mod (`{{name}}`, prefix `{{prefix}}`). This file is for AI coding agents and contributors.
 
 ## Start here
 1. `dev/progress.md`: where things stand and the next step.
@@ -12,7 +12,7 @@ Crusader Kings III mod (`{{nome}}`, prefix `{{prefixo}}`). This file is for AI c
   external DLL unless the maintainer explicitly asks: it ties the mod to one exact game build.
 - Never invent effects, triggers or scopes: check the vanilla files in `<CK3>/game/` and the game's `script_docs`
   output (`logs/effects.log`, `logs/triggers.log`).
-- Everything the mod creates uses the `{{prefixo}}` prefix (events, scripted effects/triggers, variables, keys).
+- Everything the mod creates uses the `{{prefix}}` prefix (events, scripted effects/triggers, variables, keys).
 - Prefer adding files over overwriting vanilla ones; list any overwritten vanilla file in the README.
 - Localization: `localization/<language>/<name>_l_<language>.yml`, UTF-8 **with BOM**, first line `l_<language>:`,
   same keys in `english` and `braz_por`. Script files with non-ASCII text: UTF-8 with BOM.
@@ -21,7 +21,7 @@ Crusader Kings III mod (`{{nome}}`, prefix `{{prefixo}}`). This file is for AI c
 ## Working on a feature
 - One feature `in_progress` at a time in `dev/features.json`.
 - `done` only with evidence from a real check: date, what was run, what came out (e.g. "2026-10-21 console
-  `effect trigger_event = {{prefixo}}.0001`: event shown; error.log: nothing from {{prefixo}}"). "Looks right" is not
+  `effect trigger_event = {{prefix}}.0001`: event shown; error.log: nothing from {{prefix}}"). "Looks right" is not
   evidence. No way to test yet: keep it `in_progress` or `blocked` with the reason.
 - Test in game with `-debug_mode`; check `Documents/Paradox Interactive/Crusader Kings III/logs/error.log`.
 - When you stop: update `dev/features.json`, rewrite `dev/progress.md`, add lasting decisions to `dev/decisions.md`.

@@ -1,94 +1,96 @@
-# Arquitetura da DLL: nucleo generico + plugins de mod em fonte C
+Portuguese version: [arquitetura_dll.pt-BR.md](arquitetura_dll.pt-BR.md)
 
-Criado em 2026-10-04 a pedido do usuario. Objetivo: separar a DLL em uma parte generica, para compartilhar com a
-comunidade, e o que e so do Auto Raid, que passa a morar dentro da pasta do mod como plugin em fonte C, compilado
-pela DLL com o TinyCC embutido. O que ja funciona e mantido; a mudanca e de lugar, nao de comportamento.
+# DLL architecture: generic core + mod plugins in C source
 
-Estado: arquitetura confirmada pelo usuario em 2026-10-04, incluindo o plugin em fonte C (prova na secao 8). A2 e A1 feitas
-em 2026-10-05 (secoes 10.1 e 10.2). Nome do projeto: `ck3_custom` (decisao do usuario, 2026-10-05).
-Nada implementado alem da prova.
+Created on 2026-10-04 at the user's request. Goal: split the DLL into a generic part, to share with the community, and
+what is specific to Auto Raid, which moves into the mod folder as a plugin in C source, compiled by the DLL with the
+embedded TinyCC. What already works is kept; the change is of location, not of behavior.
 
-## 1. Camadas
+Status: architecture confirmed by the user on 2026-10-04, including the plugin in C source (proof in section 8). A2 and
+A1 done on 2026-10-05 (sections 10.1 and 10.2). Project name: `ck3_custom` (user's decision, 2026-10-05).
+Nothing implemented beyond the proof.
+
+## 1. Layers
 
 ```
-C:\CK3\binaries\                         generico (comunidade)
-  winmm.dll        carregador fixo: repassa a winmm do sistema, intercepta comandos, contem falhas,
-                   acha os plugins dos mods ativos, le os manifestos, registra os efeitos, carrega o nucleo
-  ck3_core.dll     nucleo generico: primitivas do jogo, comandos, pedidos de desenvolvimento,
-                   libtcc embutido (compila e recompila os plugins)
-  ck3\include\     ck3_api.h + cabecalhos do TinyCC
-  ck3\lib\         libtcc1.a (rotinas de apoio do TinyCC)
+C:\CK3\binaries\                         generic (community)
+  winmm.dll        fixed loader: forwards to the system winmm, intercepts commands, contains faults,
+                   finds the plugins of the enabled mods, reads the manifests, registers the effects, loads the core
+  ck3_core.dll     generic core: game primitives, commands, development requests,
+                   embedded libtcc (compiles and recompiles the plugins)
+  ck3\include\     ck3_api.h + TinyCC headers
+  ck3\lib\         libtcc1.a (TinyCC support routines)
 
-mod\auto_raid\plugin\                    so do Auto Raid
-  plugin.txt       manifesto
-  auto_raid.c      logica do Auto Raid em C puro (hoje no ar_core.c); pode ter outros .c e .h
+mod\auto_raid\plugin\                    Auto Raid only
+  plugin.txt       manifest
+  auto_raid.c      Auto Raid logic in plain C (currently in ar_core.c); may have other .c and .h files
 ```
 
-| Camada | Conteudo | Recarrega com o jogo aberto? |
+| Layer | Contents | Reloads with the game open? |
 |---|---|---|
-| Carregador (`winmm.dll`) | o que o `ar_proxy.c` faz hoje, mais a busca de plugins e a leitura dos manifestos | Nao |
-| Nucleo generico (`ck3_core.dll`) | primitivas e pedidos (secao 3), compilador de plugins | Sim, em `-debug_mode` |
-| Plugin do mod (`.c`) | efeitos e regras do mod (secao 4) | Sim, em `-debug_mode`: recompila ao mudar o `.c` |
+| Loader (`winmm.dll`) | what `ar_proxy.c` does today, plus the plugin search and manifest reading | No |
+| Generic core (`ck3_core.dll`) | primitives and requests (section 3), plugin compiler | Yes, in `-debug_mode` |
+| Mod plugin (`.c`) | mod effects and rules (section 4) | Yes, in `-debug_mode`: recompiles when the `.c` changes |
 
-O libtcc fica no nucleo, e nao no carregador, para que uma correcao no compilador ou na `ck3_api` tambem recarregue
-com o jogo aberto. O carregador so precisa ler texto (manifestos) antes de o jogo ler os scripts.
+libtcc lives in the core, not in the loader, so that a fix in the compiler or in `ck3_api` also reloads with the game
+open. The loader only needs to read text (manifests) before the game reads the scripts.
 
-## 2. Como o carregador acha os plugins
+## 2. How the loader finds the plugins
 
-Mesma leitura que o jogo faz (conferido nesta maquina em 2026-10-04):
-1. `Documents\Paradox Interactive\Crusader Kings III\dlc_load.json`, campo `enabled_mods` (ex.:
-   `"mod/auto_raid.mod"`). E o arquivo que o launcher grava e o jogo le; o `debug.log` do jogo lista a mesma decisao
-   (`Auto Raid|mod/auto_raid.mod|Enabled`).
-2. Cada `.mod` da lista: campo `path=` (pasta do mod).
-3. Se existir `<path>/plugin/plugin.txt`, o mod tem plugin.
+Same reading the game does (checked on this machine on 2026-10-04):
+1. `Documents\Paradox Interactive\Crusader Kings III\dlc_load.json`, field `enabled_mods` (e.g.:
+   `"mod/auto_raid.mod"`). It is the file the launcher writes and the game reads; the game's `debug.log` lists the same
+   decision (`Auto Raid|mod/auto_raid.mod|Enabled`).
+2. Each `.mod` in the list: field `path=` (mod folder).
+3. If `<path>/plugin/plugin.txt` exists, the mod has a plugin.
 
-Mod desligado no launcher nao entra. A leitura acontece na inicializacao, antes de o jogo ler os scripts, porque os
-efeitos precisam estar registrados nessa hora.
+A mod disabled in the launcher is not included. The reading happens at startup, before the game reads the scripts,
+because the effects need to be registered at that time.
 
-Casos especiais:
-- Mod em `.zip` (`archive=` no lugar de `path=`, como os da Paradox Mods): o libtcc compila de memoria, entao da para
-  ler o `.c` de dentro do zip. Primeira versao: so pasta; zip ignorado com aviso no log.
-- Mod da Workshop da Steam: o `.mod` aponta o `path=` para a pasta da Workshop; vale a mesma regra. Falta conferir se
-  a Workshop e a Paradox Mods aceitam um mod com arquivos `.c`.
+Special cases:
+- Mod in a `.zip` (`archive=` instead of `path=`, like the Paradox Mods ones): libtcc compiles from memory, so it is
+  possible to read the `.c` from inside the zip. First version: folder only; zip ignored with a warning in the log.
+- Steam Workshop mod: the `.mod` points `path=` to the Workshop folder; the same rule applies. Still to check whether
+  the Workshop and Paradox Mods accept a mod with `.c` files.
 
-## 3. Nucleo generico (fica em binaries)
+## 3. Generic core (stays in binaries)
 
-O que ja existe no `ar_core.c` e nao tem nada do Auto Raid:
-- Leitura de tabelas do jogo: unidades, exercitos, provincias, raids; posicao e mar de provincia; relacao de unidade.
-- Primitivas: dias e caminho (`eta_days`, `eta_from`), caminho em curso (`unit_path`), previsao de combate
-  (`predict_armies`), pode saquear, saque da provincia, dias de saque (`raid_days`), capacidade de saque.
-- Variaveis: ler e gravar variavel de escopo (`get_var`, `set_scope_var`, `set_scope_var_scope`).
-- Comandos: mover, rota, parar, modo saque, modo raid, juntar, dividir, dissolver, levantar, pausar, camera.
-- Pedidos de desenvolvimento: `info`, `where`, `eta`, `move`, `route`, `units`, `threats`, `peek`, `console`,
+What already exists in `ar_core.c` and has nothing of Auto Raid:
+- Reading game tables: units, armies, provinces, raids; province position and sea; unit relation.
+- Primitives: days and path (`eta_days`, `eta_from`), path in progress (`unit_path`), combat prediction
+  (`predict_armies`), can raid, province loot, raid days (`raid_days`), raid capacity.
+- Variables: read and write scope variable (`get_var`, `set_scope_var`, `set_scope_var_scope`).
+- Commands: move, route, stop, loot mode, raid mode, merge, split, disband, raise, pause, camera.
+- Development requests: `info`, `where`, `eta`, `move`, `route`, `units`, `threats`, `peek`, `console`,
   `cmdlog`, `state`, `events`, `salvar`, `carregar`, `cmdraw`.
-- Novo: compilador de plugins (secao 7).
-- Novo: primitivas que hoje vem dos triggers do script (suprimento, homens de armas, tamanho do exercito, guerra,
-  `can_raid_trigger`, dono do condado, suserano de topo, independencia, `max_military_strength`, provincias do reino,
-  capital). Necessarias para o decisor no plugin (docs/simulador.md, 7.1).
-- Novo: gravador generico (docs/simulador.md, secao 6): grava cada chamada de primitiva com argumentos e resultado.
-  Serve ao simulador e a qualquer mod como depuracao.
-- Novo, se a medida pedir: calculos pesados em laco oferecidos ao plugin (ex.: varrer provincias num raio, ordenar
-  candidatas), porque o nucleo e compilado com `gcc -O2` e o plugin com o TinyCC (secao 8).
+- New: plugin compiler (section 7).
+- New: primitives that today come from the script triggers (supply, men-at-arms, army size, war,
+  `can_raid_trigger`, county owner, top liege, independence, `max_military_strength`, realm provinces,
+  capital). Needed for the decider in the plugin (docs/simulador.md, 7.1).
+- New: generic recorder (docs/simulador.md, section 6): records each primitive call with arguments and result.
+  Serves the simulator and any mod as debugging.
+- New, if measurement calls for it: heavy loop computations offered to the plugin (e.g.: scanning provinces within a
+  radius, sorting candidates), because the core is compiled with `gcc -O2` and the plugin with TinyCC (section 8).
 
-Regra: nenhum nome `ar_` ou `auto_raid_` dentro do nucleo. Pedidos mudam de nome so se o usuario decidir (secao 9).
+Rule: no `ar_` or `auto_raid_` name inside the core. Requests change name only if the user decides (section 9).
 
-## 4. Plugin do Auto Raid (vai para a pasta do mod)
+## 4. Auto Raid plugin (goes to the mod folder)
 
-O que hoje esta no `ar_core.c` e e so do mod:
-- Efeitos `auto_raid_*` e o `on_effect` deles: `estado`, `dias`, `alvo`, `ameaca`, `seguro`, `casa`, `consulta`,
+What is in `ar_core.c` today and is specific to the mod:
+- `auto_raid_*` effects and their `on_effect`: `estado`, `dias`, `alvo`, `ameaca`, `seguro`, `casa`, `consulta`,
   `fuga`, `mover`, `parar`, `modo_saque`, `modo_raid`, `dividir`, `dissolver`, `levantar`, `pausar`, `camera`,
   `chamar`, `ping`.
-- Regras: `threat_scan` (grupo de ameaca), `top_targets` (alvos, A2, A3), `target_safe` (regra 3), `levy_days`
-  (C12), `route_slack` e a escolha da fuga, o acumulador de `casa`/`fuga`.
-- Nomes do mod: `ar_cfg_*`, `ar_excl_*`, variaveis de resposta `ar_*`.
-- Depois (A4 / SIM2): a maquina de estados que hoje esta no script.
+- Rules: `threat_scan` (threat group), `top_targets` (targets, A2, A3), `target_safe` (rule 3), `levy_days`
+  (C12), `route_slack` and the choice of escape, the `casa`/`fuga` accumulator.
+- Mod names: `ar_cfg_*`, `ar_excl_*`, response variables `ar_*`.
+- Later (A4 / SIM2): the state machine that is in the script today.
 
-O plugin nao le memoria do jogo. Tudo passa pela tabela de funcoes `ck3_api` que o nucleo entrega (secao 5). E isso
-que deixa o simulador compilar o mesmo `.c` com outra tabela.
+The plugin does not read game memory. Everything goes through the `ck3_api` function table that the core provides
+(section 5). That is what lets the simulator compile the same `.c` with another table.
 
 ## 5. Interface (`ck3\include\ck3_api.h`)
 
-Evolucao do `ar_host.h` atual (versao 3):
+Evolution of the current `ar_host.h` (version 3):
 
 ```c
 typedef struct ck3_api {
@@ -117,23 +119,23 @@ typedef struct ck3_plugin {
 const ck3_plugin *ck3_plugin_start(const ck3_api *api);
 ```
 
-- Os argumentos sao ids (unidade, provincia, exercito), nao ponteiros do jogo. O nucleo converte. Assim a tabela do
-  simulador nao precisa imitar objetos do jogo.
-- O plugin e compilado com `-nostdlib`: so enxerga a `ck3_api` e o que o nucleo liberar por nome (`memset`,
-  `memcpy`, `memmove`; `snprintf` e matematica se forem precisos). Isso evita uso acidental da API do Windows; nao e
-  protecao contra codigo malicioso (secao 9).
-- `on_post` (interceptar comandos do jogo) fica so no nucleo; o plugin nao recebe.
-- API 2 (2026-10-07, docs/perfil_resposta.md): `game_files(pasta, out, cap)` lista os `.txt` de uma pasta do jogo
-  como o jogo os ve com os mods ativos (jogo base, depois os mods na ordem do `dlc_load.json`; arquivo de mesmo nome
-  substitui; `replace_path` do `.mod` descarta os anteriores); `file_read`/`file_free` leem um deles. O `expr` passou a
-  aceitar texto de qualquer tamanho (era cortado em ~290 caracteres) e guarda ate 1024 expressoes lidas (eram 96, e
-  alem disso cada chamada lia o texto de novo). Plugin da api 1 nao carrega no nucleo 2 e vice-versa: trocar juntos o
-  `ck3_custom_core.dll`, o `ck3_custom\include\ck3_api.h` e o plugin. No simulador (`sim3.py`) as tres funcoes ficam
-  nulas e o plugin confere antes de usar.
+- The arguments are ids (unit, province, army), not game pointers. The core converts. This way the simulator's table
+  does not need to imitate game objects.
+- The plugin is compiled with `-nostdlib`: it only sees `ck3_api` and what the core exposes by name (`memset`,
+  `memcpy`, `memmove`; `snprintf` and math if needed). This avoids accidental use of the Windows API; it is not
+  protection against malicious code (section 9).
+- `on_post` (intercepting game commands) stays in the core only; the plugin does not receive it.
+- API 2 (2026-10-07, docs/perfil_resposta.md): `game_files(pasta, out, cap)` lists the `.txt` files of a game folder
+  as the game sees them with the active mods (base game, then the mods in `dlc_load.json` order; a file with the same
+  name replaces; `replace_path` in the `.mod` discards the previous ones); `file_read`/`file_free` read one of them.
+  `expr` now accepts text of any length (it used to be cut at ~290 characters) and keeps up to 1024 parsed expressions
+  (it used to be 96, and besides that each call parsed the text again). An api 1 plugin does not load in core 2 and
+  vice versa: swap together `ck3_custom_core.dll`, `ck3_custom\include\ck3_api.h` and the plugin. In the simulator
+  (`sim3.py`) the three functions are null and the plugin checks before using them.
 
-## 6. Manifesto (`plugin/plugin.txt`)
+## 6. Manifest (`plugin/plugin.txt`)
 
-Mesmo formato do `auto_raid_effects.txt` de hoje, mais o cabecalho:
+Same format as today's `auto_raid_effects.txt`, plus the header:
 
 ```
 nome auto_raid
@@ -144,152 +146,155 @@ auto_raid_pausar livre
 var ar_alvo
 ```
 
-- `fonte`: um ou mais `.c`, relativos a pasta `plugin`; os `.h` da mesma pasta entram pelo `#include`.
-- Linha de efeito: nome do efeito (escopo exercito) ou `nome livre` (qualquer escopo).
-- `var nome`: variavel de resposta (evita o aviso "used but never set").
-- O carregador encaminha cada efeito ao plugin que o declarou. Dois plugins com o mesmo nome de efeito: o segundo e
-  recusado com aviso no log.
-- `api` diferente da versao do nucleo: plugin recusado com aviso.
+- `fonte` (source): one or more `.c` files, relative to the `plugin` folder; the `.h` files in the same folder come in
+  via `#include`.
+- Effect line: effect name (army scope) or `nome livre` (`livre` = free: any scope).
+- `var nome`: response variable (avoids the "used but never set" warning).
+- The loader routes each effect to the plugin that declared it. Two plugins with the same effect name: the second is
+  rejected with a warning in the log.
+- `api` different from the core version: plugin rejected with a warning.
 
-## 7. Compilacao e recarga
+## 7. Compilation and reload
 
-- Na abertura: o carregador registra os efeitos de todos os manifestos e carrega o nucleo; o nucleo compila cada
-  plugin em memoria (libtcc) e chama `ck3_plugin_start`.
-- Erro de compilacao: log com arquivo e linha; sem plugin anterior, os efeitos dele so registram no log que o plugin
-  nao carregou (o script cai no E6, "DLL nao respondeu").
-- Com `-debug_mode` na linha de comando do jogo:
-  - o nucleo vigia a data dos `.c` e `.h` de cada plugin; mudou = recompila; compilou = `on_stop` do antigo, troca,
-    `ck3_plugin_start` do novo; falhou = o antigo continua;
-  - o carregador vigia o `ck3_core.dll` como hoje (copia `_live_N`, espera as chamadas em curso, troca); o nucleo
-    novo recompila todos os plugins.
-- Sem `-debug_mode`: compila uma vez na abertura e nao vigia.
-- Efeito ou variavel nova no manifesto continua exigindo reabrir o jogo (registro antes da leitura dos scripts).
-- Troca so entre pulsos: o nucleo espera nao haver chamada ao plugin em curso (mesmo contador `core_inflight` de
-  hoje).
+- At startup: the loader registers the effects of all manifests and loads the core; the core compiles each plugin in
+  memory (libtcc) and calls `ck3_plugin_start`.
+- Compilation error: log with file and line; with no previous plugin, its effects only record in the log that the
+  plugin did not load (the script falls into E6, "DLL did not respond").
+- With `-debug_mode` on the game's command line:
+  - the core watches the timestamps of each plugin's `.c` and `.h` files; changed = recompiles; compiled = `on_stop` of
+    the old one, swap, `ck3_plugin_start` of the new one; failed = the old one keeps running;
+  - the loader watches `ck3_core.dll` as today (copies `_live_N`, waits for calls in progress, swaps); the new core
+    recompiles all plugins.
+- Without `-debug_mode`: compiles once at startup and does not watch.
+- A new effect or variable in the manifest still requires reopening the game (registration before the scripts are read).
+- Swap only between pulses: the core waits until no plugin call is in progress (same `core_inflight` counter as
+  today).
 
-## 8. Prova do plugin em fonte C (2026-10-04): PASSOU
-Fontes e passo a passo em `docs/re/prova_tcc/`. TinyCC 0.9.28rc do repositorio oficial (commit `43c7708`).
+## 8. Proof of the plugin in C source (2026-10-04): PASSED
+Sources and step by step in `docs/re/prova_tcc/`. TinyCC 0.9.28rc from the official repository (commit `43c7708`).
 
-| Item | Resultado |
+| Item | Result |
 |---|---|
-| libtcc compilado com o GCC do WinLibs e embutido num hospedeiro de teste | OK (`libtcc.o` estatico; o nucleo de prova com o libtcc ficou com 486 KB) |
-| Plugin `.c` compilado em memoria, chamando a `ck3_api` e respondendo um efeito | OK |
-| Tempo de compilacao | plugin pequeno: 1 a 4 ms; o `ar_core.c` inteiro (2000 linhas + `windows.h`): 143 ms pelo `tcc.exe` |
-| Recarga ao mudar o `.c` | OK: v1 -> v2 em 3 ms, o anterior so e descartado depois de o novo compilar |
-| Erro de compilacao | OK: log com arquivo e linha (`plugin_erro.c:21: error: ';' expected`), plugin anterior segue respondendo |
-| Extensoes do GCC usadas no `ar_core.c` | OK: `({ })`, `__typeof__`, `_Alignas`, `__attribute__((aligned))`; o `ar_core.c` inteiro compila sem erro |
-| Desempenho do codigo gerado x `gcc -O2` | 3,2 a 4,6 vezes mais lento (Dijkstra 120x120 x 40: 19 ms x 61 ms) |
-| Sem a biblioteca do sistema (`-nostdlib`) | OK: so o que o hospedeiro libera (`memset`, `memcpy`, `memmove` + `ck3_api`); chamar `ExitProcess` = recusado ("unresolved reference") |
-| Dentro do jogo, sem reabrir | OK: nucleo de prova trocado com o jogo aberto; pedido `tcc <arquivo.c>` compilou em 2,7 ms; `effect auto_raid_ping_livre` pelo console chegou ao plugin, que chamou a `eta` real do jogo (37 dias, igual ao pedido `eta`) e gravou `ar_resp` no escopo; recarga v1 -> v2 e erro de compilacao repetidos no jogo com o mesmo resultado |
+| libtcc compiled with WinLibs GCC and embedded in a test host | OK (static `libtcc.o`; the proof core with libtcc came to 486 KB) |
+| `.c` plugin compiled in memory, calling `ck3_api` and responding to an effect | OK |
+| Compilation time | small plugin: 1 to 4 ms; the whole `ar_core.c` (2000 lines + `windows.h`): 143 ms via `tcc.exe` |
+| Reload when the `.c` changes | OK: v1 -> v2 in 3 ms, the previous one is only discarded after the new one compiles |
+| Compilation error | OK: log with file and line (`plugin_erro.c:21: error: ';' expected`), previous plugin keeps responding |
+| GCC extensions used in `ar_core.c` | OK: `({ })`, `__typeof__`, `_Alignas`, `__attribute__((aligned))`; the whole `ar_core.c` compiles without errors |
+| Performance of the generated code vs `gcc -O2` | 3.2 to 4.6 times slower (Dijkstra 120x120 x 40: 19 ms vs 61 ms) |
+| Without the system library (`-nostdlib`) | OK: only what the host exposes (`memset`, `memcpy`, `memmove` + `ck3_api`); calling `ExitProcess` = rejected ("unresolved reference") |
+| Inside the game, without reopening | OK: proof core swapped with the game open; request `tcc <arquivo.c>` compiled in 2.7 ms; `effect auto_raid_ping_livre` from the console reached the plugin, which called the game's real `eta` (37 days, same as the `eta` request) and wrote `ar_resp` to the scope; reload v1 -> v2 and compilation error repeated in the game with the same result |
 
-Conclusoes:
-- O custo de compilar e desprezivel; pode recompilar a cada mudanca de arquivo.
-- O que fica mais lento e a execucao do codigo do plugin, nao o carregamento: o TinyCC compila rapido justamente
-  porque quase nao otimiza. Por isso calculo pesado em laco (Dijkstra, varreduras grandes) fica no nucleo generico,
-  compilado com `gcc -O2`, e e oferecido ao plugin pela `ck3_api`; o plugin fica com as regras. Hoje a parte cara do
-  pulso ja roda dentro do jogo (pathfinder, previsao de combate), entao a lentidao pesa pouco. Medir o pulso real
-  depois da A2 (meta: media e pico iguais aos de hoje, ~7 ms e ~0,7 s, com folga de 20%).
-- No simulador o mesmo `.c` e compilado com `gcc -O2`: a lentidao do TinyCC nao afeta as rodadas.
-- `-nostdlib` com lista de simbolos liberados nao e caixa de areia: C com ponteiros ainda alcanca qualquer coisa.
+Conclusions:
+- The cost of compiling is negligible; it can recompile on every file change.
+- What gets slower is the execution of the plugin code, not the loading: TinyCC compiles fast precisely because it
+  barely optimizes. That is why heavy loop computation (Dijkstra, large scans) stays in the generic core, compiled
+  with `gcc -O2`, and is offered to the plugin through `ck3_api`; the plugin keeps the rules. Today the expensive part
+  of the pulse already runs inside the game (pathfinder, combat prediction), so the slowness weighs little. Measure the
+  real pulse after A2 (target: average and peak equal to today's, ~7 ms and ~0.7 s, with 20% headroom).
+- In the simulator the same `.c` is compiled with `gcc -O2`: TinyCC's slowness does not affect the runs.
+- `-nostdlib` with a list of exposed symbols is not a sandbox: C with pointers can still reach anything.
 
-## 9. Pontos em aberto
+## 9. Open points
 
-1. FECHADO (2026-10-05): nome `ck3_custom` (`ck3_custom_core.dll`, pasta `ck3_custom\`). A interface em C manteve o
-   nome `ck3_api` (`ck3_api.h`).
-2. FECHADO (2026-10-05): pedidos em `ck3_custom_cmd.txt`, respostas em `ck3_custom_dll.log`; `arlib.py` ajustado.
-3. Seguranca: todo mod ativo com plugin executa codigo. Proposta minima: o LEIAME da comunidade diz isso com clareza,
-   e o nucleo registra no log cada plugin compilado (nome, caminho, hash dos fontes).
-4. Versao do jogo: o nucleo so funciona na 1.19.0.6; cada patch muda enderecos. Plugins nao dependem disso, so do
+1. CLOSED (2026-10-05): name `ck3_custom` (`ck3_custom_core.dll`, folder `ck3_custom\`). The C interface kept the
+   name `ck3_api` (`ck3_api.h`).
+2. CLOSED (2026-10-05): requests in `ck3_custom_cmd.txt`, responses in `ck3_custom_dll.log`; `arlib.py` adjusted.
+3. Security: every active mod with a plugin runs code. Minimal proposal: the community README says so clearly, and
+   the core records in the log each compiled plugin (name, path, hash of the sources).
+4. Game version: the core only works on 1.19.0.6; each patch changes addresses. Plugins do not depend on that, only on
    `api`.
-5. Licenca e repositorio da parte generica. O TinyCC e LGPL: com o nucleo em codigo aberto nao ha conflito.
-6. Regra da Workshop e da Paradox Mods para mod com arquivos `.c`.
-7. (Resolvido em 2026-10-07, docs/plano_sem_graficos.md: bomba da fila em `PeekMessageW`, `efeito` sem console, pausa
-   segurada depois da carga.) Jogo sem graficos (`-nographics`), testado em 2026-10-07 (docs/dossie_exercitos.md 9.6): a opcao existe e o
-   carregador, o nucleo e o plugin sobem normalmente, mas o processo nao cria janela nenhuma e o canal de pedidos
-   (`ck3_custom_cmd.txt` -> fila -> `PostMessage(WM_AR_COMMAND)` na janela principal, `find_wnd` em `ar_proxy.c`)
-   fica sem destino: todo pedido sai "sem resposta em 8 s". A simulacao tambem nao deu sinal de andar (nenhum pulso,
-   memoria caiu para 0,8 GB depois do "Load Save"). Ideia para uma segunda tentativa: atender a fila de dentro de
-   uma chamada que a thread principal ja faz sem graficos, e o proprio proxy e a `winmm.dll` (exporta `timeGetTime`
-   e afins, chamadas por quadro); confirmar a thread e a frequencia da chamada sem graficos, atender com o mesmo
-   `core_enter`/`run_command_guarded`, e so entao ver se `pause 0` faz os dias andarem. Ganhos ja aproveitados:
-   pedido `velocidade <1..5>` no nucleo e modo `SEM_JANELA` do vigia (`docs/testes/ideal.py`).
+5. License and repository of the generic part. TinyCC is LGPL: with the core as open source there is no conflict.
+6. Workshop and Paradox Mods rules for a mod with `.c` files.
+7. (Resolved on 2026-10-07, docs/plano_sem_graficos.md: queue pump in `PeekMessageW`, `efeito` without console, pause
+   held after loading.) Game without graphics (`-nographics`), tested on 2026-10-07 (docs/dossie_exercitos.md 9.6): the
+   option exists and the loader, the core and the plugin start normally, but the process does not create any window
+   and the request channel (`ck3_custom_cmd.txt` -> queue -> `PostMessage(WM_AR_COMMAND)` on the main window,
+   `find_wnd` in `ar_proxy.c`) has no destination: every request ends with "no response in 8 s". The simulation also
+   showed no sign of advancing (no pulse, memory dropped to 0.8 GB after "Load Save"). Idea for a second attempt:
+   serve the queue from inside a call that the main thread already makes without graphics, and that is the proxy itself,
+   `winmm.dll` (it exports `timeGetTime` and the like, called every frame); confirm the thread and frequency of the call
+   without graphics, serve with the same `core_enter`/`run_command_guarded`, and only then see whether `pause 0` makes
+   the days advance. Gains already put to use: request `velocidade <1..5>` in the core and `SEM_JANELA` mode of the
+   watcher (`docs/testes/ideal.py`).
 
-## 10. Etapas (mantendo o que funciona)
+## 10. Stages (keeping what works)
 
-| # | Etapa | Conferencia |
+| # | Stage | Check |
 |---|---|---|
-| A1 FEITA (10.2) | Carregador: busca de plugins (secao 2), leitura dos manifestos, registro dos efeitos de cada plugin, recarga do nucleo so em `-debug_mode`. Sem plugin achado, carrega o `auto_raid_core.dll` como hoje | jogo abre e o ciclo roda igual |
-| A2 FEITA (10.1) | Separar o `ar_core.c` em `ck3_core.dll` (com o libtcc, secao 7) + `mod\auto_raid\plugin\auto_raid.c` (secoes 3 e 4), sem mudar comportamento; ids no lugar de ponteiros na interface | mesma resposta em cada efeito, comparada pelo log e pela gravacao (SIM1); custo do pulso medido (secao 8) |
-| A3 | Primitivas novas dos triggers no nucleo generico | cada uma conferida contra o trigger do script no mesmo pulso |
-| A4 | Decisoes do script para o plugin (docs/simulador.md, SIM2) | decide igual ao gabarito em 100% dos pulsos |
-| A5 | LEIAME da comunidade e do plugin | instalacao do zero seguindo so o LEIAME |
-| A6 | Configuracao dos mods (secao 11): prova C1 a C7, depois implementacao | secao 11.6 |
+| A1 DONE (10.2) | Loader: plugin search (section 2), manifest reading, registration of each plugin's effects, core reload only in `-debug_mode`. With no plugin found, loads `auto_raid_core.dll` as today | game opens and the cycle runs the same |
+| A2 DONE (10.1) | Split `ar_core.c` into `ck3_core.dll` (with libtcc, section 7) + `mod\auto_raid\plugin\auto_raid.c` (sections 3 and 4), without changing behavior; ids instead of pointers in the interface | same response in each effect, compared by the log and the recording (SIM1); pulse cost measured (section 8) |
+| A3 | New primitives from the triggers in the generic core | each one checked against the script trigger in the same pulse |
+| A4 | Script decisions to the plugin (docs/simulador.md, SIM2) | decides the same as the reference in 100% of pulses |
+| A5 | Community and plugin README | installation from scratch following only the README |
+| A6 | Mod configuration (section 11): proof C1 to C7, then implementation | section 11.6 |
 
-### 10.1 A2 feita (2026-10-05)
-- Nucleo generico: `dll/ar_core.c` (ainda com o nome `auto_raid_core.dll`, que o carregador procura; o nome generico
-  entra com a A1). Primitivas, comandos, variaveis, expressoes de script, gravador, aba Mods, pedidos de
-  desenvolvimento e o compilador de plugins (libtcc embutido; o nucleo ficou com ~510 KB). Implementa a `ck3_api`
-  (`dll/ck3_api.h`, versao 1) por ids.
-- Plugin do Auto Raid: `plugin/plugin.txt` (nome, api, fontes), `plugin/auto_raid.c` (efeitos `auto_raid_*`, grupo de
-  ameaca, alvos, regra 3, contra-saque, casa, fuga, configuracao `ar_cfg_*`, linhas da gravacao do mod, pedidos
-  `levas`/`target`/`scan`, mundo do decisor) e `plugin/ar_decisor.c/.h` (maquina de estados, SIM2). O nucleo acha o
-  plugin pelos mods ativos (`dlc_load.json`), compila ao carregar (8 a 18 ms) e, em `-debug_mode`, quando um `.c`/`.h`
-  da pasta muda; erro de compilacao = log com arquivo e linha, e o plugin anterior continua (conferido no jogo). Os
-  efeitos seguem registrados pelo carregador a partir de `auto_raid_effects.txt` ate a A1; o nucleo repassa cada efeito
-  ao primeiro plugin que o trata.
-- O nucleo guarda a tabela de provincias no inicio de cada efeito e pedido: cada leitura segura e uma chamada ao
-  sistema (`ReadProcessMemory`), e sem isso os lacos do plugin sobre todas as provincias custavam ~30% a mais.
-- Conferencia (`docs/testes/a2_respostas.py`): no save fixo `a2_base`, jogo pausado, o mesmo roteiro de efeitos e
-  pedidos com o nucleo antigo e com nucleo + plugin; a gravacao (respostas, primitivas, alvos, levas, previsoes,
-  consultas e o pulso do decisor) deu 2812 de 2812 linhas iguais (o roteiro repetido com o mesmo nucleo tambem da 0
-  diferencas). Rodada de 1 ano do S1: conferidor do SIM2 371 de 371; pulso medio 8,7 ms e pico 658 ms (antes ~7 a
-  10 ms e ~700 ms). Conferidor do SIM2a com o decisor na pasta nova: 100% nos gabaritos de 10 anos.
-- O que ficou para a A1 esta na 10.2.
+### 10.1 A2 done (2026-10-05)
+- Generic core: `dll/ar_core.c` (still with the name `auto_raid_core.dll`, which the loader looks for; the generic name
+  comes with A1). Primitives, commands, variables, script expressions, recorder, Mods tab, development requests and
+  the plugin compiler (embedded libtcc; the core came to ~510 KB). Implements `ck3_api` (`dll/ck3_api.h`, version 1)
+  by ids.
+- Auto Raid plugin: `plugin/plugin.txt` (name, api, sources), `plugin/auto_raid.c` (`auto_raid_*` effects, threat
+  group, targets, rule 3, counter-raid, home, escape, `ar_cfg_*` configuration, mod recording lines, requests
+  `levas`/`target`/`scan`, decider world) and `plugin/ar_decisor.c/.h` (state machine, SIM2). The core finds the
+  plugin through the active mods (`dlc_load.json`), compiles on load (8 to 18 ms) and, in `-debug_mode`, when a
+  `.c`/`.h` in the folder changes; compilation error = log with file and line, and the previous plugin keeps running
+  (checked in the game). The effects remain registered by the loader from `auto_raid_effects.txt` until A1; the core
+  forwards each effect to the first plugin that handles it.
+- The core caches the province table at the start of each effect and request: each safe read is a system call
+  (`ReadProcessMemory`), and without this the plugin's loops over all provinces cost ~30% more.
+- Check (`docs/testes/a2_respostas.py`): on the fixed save `a2_base`, game paused, the same script of effects and
+  requests with the old core and with core + plugin; the recording (responses, primitives, targets, levies,
+  predictions, queries and the decider pulse) gave 2812 of 2812 identical lines (the script repeated with the same
+  core also gives 0 differences). 1-year run of S1: SIM2 checker 371 of 371; average pulse 8.7 ms and peak 658 ms
+  (before ~7 to 10 ms and ~700 ms). SIM2a checker with the decider in the new folder: 100% on the 10-year references.
+- What was left for A1 is in 10.2.
 
-### 10.2 A1 feita (2026-10-05, com reabertura do jogo)
-- Nomes `ck3_custom` em `C:\CK3inaries`: `ck3_custom_core.dll` (copias `ck3_custom_core_live_N.dll`),
-  `ck3_custom_cmd.txt`, `ck3_custom_dll.log` e a pasta `ck3_custom\` (gravacao, mapa, `configuracoes_mods.txt`,
-  `include\` e `lib\` do TinyCC). O carregador continua `winmm.dll`. Os arquivos antigos ficaram com o sufixo
-  `.antes_a1` (`winmm.dll`, `auto_raid_core.dll`, `auto_raid_effects.txt`).
-- Carregador: acha os mods ativos (`dlc_load.json`, a mesma leitura das configuracoes) e registra os efeitos e as
-  variaveis de cada `plugin/plugin.txt`; nome repetido em outro plugin e recusado com aviso. O
-  `auto_raid_effects.txt` deixou de existir. Registra tambem `ck3_custom_ping` (qualquer escopo), do proprio nucleo:
-  as provas `expr`/`ctxprova` passaram para ele. O nucleo e carregado na abertura e so e recarregado ao mudar em
+### 10.2 A1 done (2026-10-05, with a game reopen)
+- `ck3_custom` names in `C:\CK3\binaries`: `ck3_custom_core.dll` (copies `ck3_custom_core_live_N.dll`),
+  `ck3_custom_cmd.txt`, `ck3_custom_dll.log` and the folder `ck3_custom\` (recording, map, `configuracoes_mods.txt`,
+  TinyCC `include\` and `lib\`). The loader remains `winmm.dll`. The old files got the suffix `.antes_a1`
+  (`winmm.dll`, `auto_raid_core.dll`, `auto_raid_effects.txt`).
+- Loader: finds the active mods (`dlc_load.json`, the same reading as the configuration) and registers the effects and
+  variables of each `plugin/plugin.txt`; a name repeated in another plugin is rejected with a warning. The
+  `auto_raid_effects.txt` no longer exists. It also registers `ck3_custom_ping` (any scope), from the core itself:
+  the `expr`/`ctxprova` proofs moved to it. The core is loaded at startup and is only reloaded on change in
   `-debug_mode`.
-- Nucleo: le os efeitos de cada manifesto e entrega cada efeito ao plugin que o declarou.
-- Na mesma reabertura entrou o retrato mensal do SIM1b (`ar_retrato` no script, efeito `auto_raid_retrato`), so com
-  a gravacao ligada (variavel `ar_gravando`, posta pelo plugin a cada pulso).
-- Conferido depois da reabertura: 25 efeitos e 17 variaveis registrados, plugin compilado em 8,8 ms, error.log sem
-  erro do mod; gabarito `a2_respostas.py` 2812 de 2812 linhas iguais ao do nucleo de antes da A2; rodada de 1 ano do
-  S1 com gravacao: 368 de 368 pulsos iguais no conferidor, pulso medio 8,8 ms, pico 652 ms, retrato com ~406
-  provincias por mes; troca do nucleo com o jogo aberto (plugin recompilado junto); `mudo` desligou o ciclo no
-  segundo pulso sem resposta (E6).
+- Core: reads the effects of each manifest and delivers each effect to the plugin that declared it.
+- In the same reopen the SIM1b monthly snapshot came in (`ar_retrato` in the script, effect `auto_raid_retrato`), only
+  with recording on (variable `ar_gravando`, set by the plugin at each pulse).
+- Checked after the reopen: 25 effects and 17 variables registered, plugin compiled in 8.8 ms, error.log without mod
+  errors; reference `a2_respostas.py` 2812 of 2812 lines identical to the core from before A2; 1-year run of S1 with
+  recording: 368 of 368 identical pulses in the checker, average pulse 8.8 ms, peak 652 ms, snapshot with ~406
+  provinces per month; core swap with the game open (plugin recompiled along with it); `mudo` turned off the cycle on
+  the second pulse without response (E6).
 
-Ordem com o simulador: SIM1 (gravador) vem antes de A2, para a gravacao do comportamento atual servir de gabarito
-da separacao.
+Order with the simulator: SIM1 (recorder) comes before A2, so that the recording of the current behavior serves as the
+reference for the split.
 
-## 11. Configuracao dos mods (pedido do usuario em 2026-10-04)
+## 11. Mod configuration (user request on 2026-10-04)
 
-### 11.1 O que se quer
-- A DLL acrescenta uma aba "Mods" na janela de configuracoes do jogo.
-- A aba lista um botao por mod que tem configuracao; o botao mostra as opcoes daquele mod.
-- Cada mod declara as opcoes numa estrutura propria: quais sao, de que tipo, padrao, limites e como aparecem.
-- Mod sem configuracao nao aparece. Nenhum mod com configuracao = a aba nao aparece.
-- Para o Auto Raid: configuracao global (vale para todos os saves), com sobrescrita por save para os testes.
+### 11.1 What is wanted
+- The DLL adds a "Mods" tab to the game's settings window.
+- The tab lists one button per mod that has configuration; the button shows that mod's options.
+- Each mod declares its options in its own structure: which they are, of what type, default, limits and how they
+  appear.
+- A mod without configuration does not appear. No mod with configuration = the tab does not appear.
+- For Auto Raid: global configuration (applies to all saves), with per-save override for the tests.
 
-### 11.2 Caminho (decidido)
-A. Aba nativa (principal): a DLL registra as opcoes no registro de configuracoes do motor, num grupo `mods`; a pagina e as secoes vem do `game/settings_layout.txt` (page > category > order), que o mod substitui com uma pagina a mais (achado na C2). A janela monta as
-abas a partir de `JominiSettingsWindow.AccessPages` (`game/gui/settings/setting_types.gui`) e ja tem os tipos
-`jomini_setting_bool`, `_enum`, `_value_scrollbar`, `_string`, `_callback` e `jomini_settings_grouping`. Os valores
-ficam no `pdx_settings.txt` da pasta do usuario, gravados pelo proprio jogo (hoje com as paginas "Tools", "game"
-etc.). Funciona no menu principal e durante a partida, sem substituir nenhum `.gui` (sem conflito com outros mods).
-Exige engenharia reversa do registro (prova 11.6).
+### 11.2 Path (decided)
+A. Native tab (main): the DLL registers the options in the engine's settings registry, in a `mods` group; the page and the sections come from `game/settings_layout.txt` (page > category > order), which the mod replaces with one extra page (found in C2). The window builds the
+tabs from `JominiSettingsWindow.AccessPages` (`game/gui/settings/setting_types.gui`) and already has the types
+`jomini_setting_bool`, `_enum`, `_value_scrollbar`, `_string`, `_callback` and `jomini_settings_grouping`. The values
+are stored in `pdx_settings.txt` in the user folder, written by the game itself (today with the pages "Tools", "game"
+etc.). Works in the main menu and during the match, without replacing any `.gui` (no conflict with other mods).
+Requires reverse engineering of the registry (proof 11.6).
 
-B. Janela propria (reserva, se A nao der): uma GUI generica que acompanha a DLL, aberta por um botao no menu de
-pausa; os botoes chamam `scripted_gui` com efeitos da DLL, que grava um arquivo de configuracao. So durante a
-partida, e substitui o `frontend_ingame_menu.gui` (pode conflitar com mods que mexem no mesmo arquivo).
+B. Own window (fallback, if A does not work): a generic GUI shipped with the DLL, opened by a button in the pause
+menu; the buttons call `scripted_gui` with DLL effects, which writes a configuration file. Only during the match, and
+it replaces `frontend_ingame_menu.gui` (may conflict with mods that touch the same file).
 
-### 11.3 Estrutura que o mod declara (`plugin/config.txt`)
+### 11.3 Structure the mod declares (`plugin/config.txt`)
 ```
 mod auto_raid
 titulo ar_cfg_titulo                     # chave de localizacao do botao do mod
@@ -306,76 +311,78 @@ grupo avisos ar_cfg_grupo_avisos
   liga pausa_fuga 1
   liga pausa_guerra 1
 ```
-- Tipos: `liga <chave> <padrao>`; `inteiro <chave> <padrao> <min> <max> [passo] [formato]`; `real <chave> <padrao> <min> <max> <passo> [formato]`. `formato` = chave de texto do valor do jogo (`SETTING_VALUE_NONE` se faltar; ex.: `SETTING_VALUE_PERCENTAGE`, `SETTING_VALUE_SECONDS`). Feitos: liga, inteiro, real (C4). Planejados: `lista` (enum), `texto` (string).
-- Nome da opcao no jogo: `<mod>_<chave>`, no grupo `mods` do `pdx_settings.txt`. Arquivo: `plugin/config.txt`.
-- Textos: `<mod>_cfg_<chave>` e `<mod>_cfg_<chave>_TOOLTIP` (convencao do jogo) na localizacao do proprio mod; titulo da aba `SETTINGS_PAGE_MODS` e da secao a chave de `titulo` ou `grupo` (o jogo ja carrega, porque o
-  mod esta ativo). Chave sem texto aparece pelo nome.
-- A lista completa do Auto Raid sai do `ar_configurar` atual (23 parametros).
+- Types: `liga <chave> <padrao>` (toggle); `inteiro <chave> <padrao> <min> <max> [passo] [formato]` (integer); `real <chave> <padrao> <min> <max> <passo> [formato]` (real). `formato` (format) = the game's value text key (`SETTING_VALUE_NONE` if missing; e.g.: `SETTING_VALUE_PERCENTAGE`, `SETTING_VALUE_SECONDS`). Done: liga, inteiro, real (C4). Planned: `lista` (enum), `texto` (string).
+- Option name in the game: `<mod>_<chave>`, in the `mods` group of `pdx_settings.txt`. File: `plugin/config.txt`.
+- Texts: `<mod>_cfg_<chave>` and `<mod>_cfg_<chave>_TOOLTIP` (game convention) in the mod's own localization; tab title `SETTINGS_PAGE_MODS` and section title the key from `titulo` (title) or `grupo` (group) (the game already loads it, because the
+  mod is active). A key without text appears by its name.
+- The full Auto Raid list comes from the current `ar_configurar` (23 parameters).
 
-### 11.4 Valor que vale (Auto Raid)
-Ordem: sobrescrita do save > global > padrao do `config.txt`.
-- Global: o valor da aba (no `pdx_settings.txt`).
-- Sobrescrita do save: variavel `ar_fixo_<chave>` no personagem do jogador, posta por console ou pelos testes
-  (`docs/testes/arlib.py`, `cfg()`, grava `ar_fixo_*` desde 2026-10-05).
-- Enquanto as decisoes estiverem no script (antes da A4): a cada pulso o nucleo grava o valor que vale em
-  `ar_cfg_<chave>` (no `auto_raid_chamar`), e o script continua lendo `root.var:ar_cfg_*` como hoje. O `ar_configurar`
-  continua criando as `ar_cfg_*` com os padroes (o nucleo so atualiza as que existem); como a sobrescrita e a
-  `ar_fixo_*`, os padroes do script nao viram sobrescrita.
-- Depois da A4: o plugin le direto pela `ck3_api` (`cfg(mod, chave)`), sem variavel no save.
+### 11.4 Effective value (Auto Raid)
+Order: save override > global > `config.txt` default.
+- Global: the tab value (in `pdx_settings.txt`).
+- Save override: variable `ar_fixo_<chave>` on the player character, set via console or by the tests
+  (`docs/testes/arlib.py`, `cfg()`, writes `ar_fixo_*` since 2026-10-05).
+- While the decisions are in the script (before A4): at each pulse the core writes the effective value to
+  `ar_cfg_<chave>` (in `auto_raid_chamar`), and the script keeps reading `root.var:ar_cfg_*` as today. `ar_configurar`
+  keeps creating the `ar_cfg_*` with the defaults (the core only updates the ones that exist); since the override is
+  `ar_fixo_*`, the script defaults do not become an override.
+- After A4: the plugin reads directly through `ck3_api` (`cfg(mod, chave)`), with no variable in the save.
 
 ### 11.5 Interface
-Acrescimos a `ck3_api`: `double (*cfg)(const char *mod, const char *key)` e, no `ck3_plugin`,
-`void (*on_cfg)(const char *key)` (avisa quando o jogador muda um valor). O carregador le os `config.txt` junto dos
-manifestos (secao 2) e registra a aba; sem nenhum `config.txt` com opcao, nao registra.
+Additions to `ck3_api`: `double (*cfg)(const char *mod, const char *key)` and, in `ck3_plugin`,
+`void (*on_cfg)(const char *key)` (notifies when the player changes a value). The loader reads the `config.txt` files
+along with the manifests (section 2) and registers the tab; with no `config.txt` that has an option, it does not
+register it.
 
-### 11.6 Prova (C1 a C7 feitas; C4 sem lista e texto; C7 na abertura a conferir)
-| # | Item | Como confere |
+### 11.6 Proof (C1 to C7 done; C4 without list and text; C7 at startup to be checked)
+| # | Item | How it is checked |
 |---|---|---|
-| C1 | Achar o registro de configuracoes no `ck3.exe` 1.19.0.6 | OK (2026-10-04): gerenciador `exe+0x5710d58`, registrar `0x3b44cf0(gerenciador, &grupo, opcao, n)`, construtoras por tipo, trava depois de `LoadSettings`; detalhes em `docs/re_notas.md`, secao C1. Para a C2: registrar logo depois da criacao do gerenciador (`0x3b44b40`), com desvio no `winmm.dll` |
-| C2 | Registrar na inicializacao uma pagina "Mods" com uma opcao liga/desliga | OK na memoria (2026-10-04): desvio no `winmm.dll` em `0x3b44b40` registrou `mods/auto_raid_teste` antes da leitura do `pdx_settings.txt`, sem o aviso de trava; com o `settings_layout.txt` do mod (vanilla + pagina `SETTINGS_PAGE_MODS`), a `CJominiSettingsWindow` (`+0xd8`) montou 4 paginas, a quarta "Mods" com 1 opcao. Visual OK no menu principal: aba Mods com a secao "Auto Raid" e "Opcao de teste do Auto Raid" em portugues. Achados: a caixa aparece desmarcada com padrao 1 na construtora (conferir na C3); com 4 abas a janela passa da borda direita numa tela de 1707 px (conferir se o original tambem corta) |
-| C3 | Valor gravado e lido de volta no `pdx_settings.txt`, inclusive depois de reabrir o jogo; o jogo nao apaga opcao que ele nao conhece | PARCIAL (2026-10-04): o jogo grava sozinho, a cada mudanca, uma secao nova `"mods"={ "auto_raid_teste"={ version=0 enabled=yes } }`; reaberto com a DLL, o valor volta (1 nos tres campos de valor). FALHA: aberto SEM a DLL, o jogo regrava o arquivo na abertura e apaga a secao `"mods"` (correcao em 11.7). Pendente: o padrao da construtora (1) nao vale quando a opcao nao esta no arquivo (aparece 0) |
-| C4 | Barra de valor (inteiro e real), lista e texto | PARCIAL (2026-10-05): inteiro e real OK. `inteiro raio 150 50 400 10` e `real chance 0.8 0.5 0.99 0.01 SETTING_VALUE_PERCENTAGE` apareceram como barras (150 e 80%); o usuario mudou para 400 e 99% e o jogo gravou `value=400` e `value=0.990000`; reaberto, os valores voltaram do arquivo; `inteiro margem 5 0 30` acrescentado com o jogo aberto entrou pela recarga com o padrao 5. Lista e texto ficam para depois (o Auto Raid nao usa): a lista do jogo e uma classe derivada por opcao (`0x2049010`) com itens em tabela fixa no codigo; texto tem construtora `0x3b4c290` |
-| C5 | Botao por mod que troca as opcoes mostradas | OK (2026-10-05, sem reabrir o jogo, no nucleo): a aba Mods mostra uma lista de botoes (`CPdxCallbackSetting` `mods_botao_<mod>`, texto = `titulo` do mod; acao = `std::function<void()>` do tipo do jogo `_Func_impl_no_alloc<void(*)()>` apontando para uma funcao do nucleo); o clique (adiado para a fila da thread principal) troca a aba Mods pelas secoes daquele mod com um botao `mods_voltar`, e seleciona a aba pelo mesmo caminho do clique na aba (`0x32d9cf0`). Um vigia (thread do nucleo) acha a janela no ponteiro guardado pelo carregador e troca de novo quando a aba completa do carregador volta (janela remontada, config recarregada). Ao trocar o nucleo, os botoes apontam para um `ret` do jogo ate o novo nucleo religar. Conferido pelo usuario: lista, Auto Raid, Voltar, e uma opcao mudada e gravada |
-| C6 | Ler o valor pela DLL na partida e ser avisado da mudanca | OK (2026-10-05, sem reabrir o jogo): o nucleo le as opcoes do grupo `mods` direto dos objetos (pedido `cfg` lista; `cfg <nome> <valor>` muda pelo caminho da interface). A cada pulso, no `auto_raid_chamar` do personagem do jogador, grava `ar_cfg_<chave>` com o valor da aba, ou `ar_fixo_<chave>` se o save tiver; so nas 23 `ar_cfg_*` que o `ar_configurar` cria. Conferido no `auto_raid_teste`: aba raio 250 -> `ar_cfg_raio` 250; `ar_fixo_raio` 200 -> 200; sem o `ar_fixo` -> 250; aba 300 -> 300. A mudanca vale no pulso seguinte (esse e o "aviso") |
-| C7 | Sem `config.txt` com opcao: aba nao registrada | OK com o jogo aberto (2026-10-05): `config.txt` trocado por um sem opcoes -> o nucleo tirou a aba Mods (3 abas) e o carregador, ao recarregar, nao acrescentou a dele; `config.txt` devolvido -> 4 abas com a lista de botoes. O nucleo agora rele os `config.txt` a cada troca e o vigia observa a data deles. Na abertura (nenhum mod com `config.txt`): pelo codigo, o carregador sai do `cfg_install` antes dos desvios (nao registra opcao nem aba); conferir na proxima reabertura do jogo que for necessaria |
+| C1 | Find the settings registry in `ck3.exe` 1.19.0.6 | OK (2026-10-04): manager `exe+0x5710d58`, register `0x3b44cf0(gerenciador, &grupo, opcao, n)`, constructors per type, lock after `LoadSettings`; details in `docs/re_notas.md`, section C1. For C2: register right after the manager is created (`0x3b44b40`), with a hook in `winmm.dll` |
+| C2 | Register at startup a "Mods" page with an on/off option | OK in memory (2026-10-04): hook in `winmm.dll` at `0x3b44b40` registered `mods/auto_raid_teste` before `pdx_settings.txt` was read, without the lock warning; with the mod's `settings_layout.txt` (vanilla + page `SETTINGS_PAGE_MODS`), `CJominiSettingsWindow` (`+0xd8`) built 4 pages, the fourth "Mods" with 1 option. Visual OK in the main menu: Mods tab with the "Auto Raid" section and "Opcao de teste do Auto Raid" in Portuguese. Findings: the checkbox appears unchecked with default 1 in the constructor (check in C3); with 4 tabs the window goes past the right edge on a 1707 px screen (check whether the original also gets cut) |
+| C3 | Value written and read back in `pdx_settings.txt`, including after reopening the game; the game does not erase an option it does not know | PARTIAL (2026-10-04): the game writes on its own, on each change, a new section `"mods"={ "auto_raid_teste"={ version=0 enabled=yes } }`; reopened with the DLL, the value comes back (1 in the three value fields). FAILURE: opened WITHOUT the DLL, the game rewrites the file at startup and erases the `"mods"` section (fix in 11.7). Pending: the constructor default (1) does not apply when the option is not in the file (it appears as 0) |
+| C4 | Value bar (integer and real), list and text | PARTIAL (2026-10-05): integer and real OK. `inteiro raio 150 50 400 10` and `real chance 0.8 0.5 0.99 0.01 SETTING_VALUE_PERCENTAGE` appeared as bars (150 and 80%); the user changed them to 400 and 99% and the game wrote `value=400` and `value=0.990000`; reopened, the values came back from the file; `inteiro margem 5 0 30` added with the game open came in through the reload with default 5. List and text are left for later (Auto Raid does not use them): the game's list is a derived class per option (`0x2049010`) with items in a fixed table in the code; text has constructor `0x3b4c290` |
+| C5 | Button per mod that switches the displayed options | OK (2026-10-05, without reopening the game, in the core): the Mods tab shows a list of buttons (`CPdxCallbackSetting` `mods_botao_<mod>`, text = the mod's `titulo`; action = `std::function<void()>` of the game's type `_Func_impl_no_alloc<void(*)()>` pointing to a core function); the click (deferred to the main thread queue) replaces the Mods tab with that mod's sections plus a `mods_voltar` button, and selects the tab through the same path as a click on the tab (`0x32d9cf0`). A watcher (core thread) finds the window via the pointer saved by the loader and switches again when the loader's full tab comes back (window rebuilt, config reloaded). When the core is swapped, the buttons point to a game `ret` until the new core reconnects them. Checked by the user: list, Auto Raid, Back, and an option changed and saved |
+| C6 | Read the value from the DLL during the match and be notified of the change | OK (2026-10-05, without reopening the game): the core reads the options of the `mods` group directly from the objects (request `cfg` lists; `cfg <nome> <valor>` changes through the interface path). At each pulse, in the player character's `auto_raid_chamar`, it writes `ar_cfg_<chave>` with the tab value, or `ar_fixo_<chave>` if the save has it; only on the 23 `ar_cfg_*` that `ar_configurar` creates. Checked on `auto_raid_teste`: tab raio 250 -> `ar_cfg_raio` 250; `ar_fixo_raio` 200 -> 200; without `ar_fixo` -> 250; tab 300 -> 300. The change applies on the next pulse (that is the "notification") |
+| C7 | No `config.txt` with an option: tab not registered | OK with the game open (2026-10-05): `config.txt` replaced with one without options -> the core removed the Mods tab (3 tabs) and the loader, on reload, did not add its own; `config.txt` restored -> 4 tabs with the button list. The core now rereads the `config.txt` files on each swap and the watcher observes their timestamps. At startup (no mod with `config.txt`): according to the code, the loader leaves `cfg_install` before the hooks (registers neither option nor tab); check at the next game reopen that becomes necessary |
 
-Riscos: registrar pagina pode exigir que seja antes de a janela ser criada (por isso no carregador, na inicializacao);
-o jogo pode descartar do `pdx_settings.txt` opcoes que nao registrou numa abertura sem a DLL; cada patch do jogo
-muda os enderecos (como o resto do nucleo).
+Risks: registering a page may require doing it before the window is created (hence in the loader, at startup); the
+game may discard from `pdx_settings.txt` options it did not register in a startup without the DLL; each game patch
+changes the addresses (like the rest of the core).
 
-### 11.6b Menu montado pela DLL, com recarga (pedido do usuario em 2026-10-04): prova C2b
-Objetivo: o mod nao traz `settings_layout.txt`; a DLL gera a pagina "Mods" a partir dos `config.txt` e, em
-`-debug_mode`, refaz o menu quando um `config.txt` muda.
+### 11.6b Menu built by the DLL, with reload (user request on 2026-10-04): proof C2b
+Goal: the mod does not ship `settings_layout.txt`; the DLL generates the "Mods" page from the `config.txt` files and,
+in `-debug_mode`, rebuilds the menu when a `config.txt` changes.
 
-Como o jogo monta as abas (metodo da `CJominiSettingsWindow` em `0x32d7700`, 2o da vtable principal):
-1. limpa o vetor de abas (`+0xd8`, `0x7e9ea0`);
-2. le o `settings_layout.txt` (`0x3b589f0` monta o caminho, `0x3b8e670` le);
-3. entrega o lido ao leitor da janela (objeto em `+0xc8`, funcao 0x18 da vtable), que cria paginas e secoes;
-4. para cada secao de cada pagina (`pagina+0x30` lista, `+0x3c` quantidade), liga as opcoes (`0x32d5230`).
+How the game builds the tabs (`CJominiSettingsWindow` method at `0x32d7700`, 2nd in the main vtable):
+1. clears the tab vector (`+0xd8`, `0x7e9ea0`);
+2. reads `settings_layout.txt` (`0x3b589f0` builds the path, `0x3b8e670` reads);
+3. hands what was read to the window's reader (object at `+0xc8`, function 0x18 of the vtable), which creates pages
+   and sections;
+4. for each section of each page (`pagina+0x30` list, `+0x3c` count), binds the options (`0x32d5230`).
 
-Plano:
-- Abertura: a DLL registra as opcoes (como na C2) e acrescenta ao texto do layout uma pagina gerada; o arquivo do
-  jogo fica intacto.
-- Recarga (`-debug_mode`): `config.txt` mudou = registra as opcoes novas, aplica os valores pela copia propria
-  (11.7, porque o registro depois da trava nao recebe o valor do `pdx_settings.txt`) e refaz os passos 1 a 4 com
-  a janela fechada.
-- Textos: localizacao do mod, recarregada pelo proprio jogo em `-debug_mode`.
+Plan:
+- Startup: the DLL registers the options (as in C2) and appends a generated page to the layout text; the game's file
+  stays intact.
+- Reload (`-debug_mode`): `config.txt` changed = registers the new options, applies the values from its own copy
+  (11.7, because registration after the lock does not receive the value from `pdx_settings.txt`) and redoes steps 1 to
+  4 with the window closed.
+- Texts: the mod's localization, reloaded by the game itself in `-debug_mode`.
 
-| # | Item | Estado |
+| # | Item | Status |
 |---|---|---|
-| C2b.1 | Como acrescentar texto ao layout: desvio na leitura (`0x3b8e670`) do `settings_layout.txt`, ou o leitor de `+0xc8` chamado de novo com o nosso texto (se acrescenta em vez de substituir) | OK (2026-10-04): o leitor (`janela+0xc8`, vtable[3] `0x3b8b060`, por bloco `page` = token `0x2d1` em `0x32d6cc0`) acrescenta paginas ao vetor `janela+0xd8` sem limpar. Texto da memoria: `CMemoryFile` (vtable `0x4559758`; buffer `{dados, ?, alocador char 0x4fea420}` por `0x3bb5200`), `CLexer` por `0x3b58cf0(lexer, &arquivo, 0)` com a vtable trocada para `CTextLexer` (`0x4556c20`), leitor `0x3b8e670(leitor, &lexer)`; depois `0x32d5230(secao)` para cada secao nova. Pedidos de teste `layout <janela> <arquivo>` e `layout_tirar <janela> <indice>` no nucleo |
-| C2b.2 | Refazer os passos 1 a 4 com o jogo aberto e a janela fechada, sem recriar a janela; a interface mostra as abas novas ao abrir | OK (2026-10-04, jogo aberto, menu principal): tirada a aba do `settings_layout.txt` do mod e acrescentada uma montada pela DLL com a secao "Idioma"; ao abrir a janela, a 4a aba mostrou "Idioma" com a opcao do Auto Raid, sem falha. Falta: achar a janela sem o endereco passado a mao; liberar a memoria das paginas tiradas |
-| C2b.3 | Registrar opcao nova depois da trava e aplicar o valor dela pela DLL | OK (2026-10-04): pedido `opcao mods auto_raid_teste2 AR_CFG_TESTE2 1` com o jogo aberto; o jogo avisa `registered after setting lockdown, may get lost` (so quer dizer que nao recebe o valor do arquivo); o valor e aplicado por `0x3b46990(opcao, valor, 1)`, o mesmo do clique na caixa (`0x32d6610`); a opcao apareceu na aba refeita e, mudada pelo usuario, foi gravada no `pdx_settings.txt` junto da outra |
-| C2b.4 | Pedido de teste `config recarregar` e, depois, vigia do `config.txt` em `-debug_mode` | OK (2026-10-05): no carregador (`ar_proxy.c`, secao "configuracoes dos mods"). Abertura: acha os mods pelo `dlc_load.json`, le `plugin/config.txt`, registra as opcoes na criacao do gerenciador e, por desvio no metodo de montagem da janela (`0x32d7700`), acrescenta a pagina Mods gerada e guarda a janela (o jogo remonta a janela sozinho, ex.: ao recarregar a localizacao em `-debug_mode`, e o desvio acrescenta de novo). Recarga: a vigia (a cada ~1 s, so em `-debug_mode`) viu `liga teste3 1` acrescentado ao `config.txt`, registrou a opcao com o jogo aberto, aplicou o padrao e refez a aba; o usuario viu as tres opcoes com os valores certos. O mod nao traz mais `settings_layout.txt` |
+| C2b.1 | How to append text to the layout: hook on the read (`0x3b8e670`) of `settings_layout.txt`, or the `+0xc8` reader called again with our text (if it appends instead of replacing) | OK (2026-10-04): the reader (`janela+0xc8`, vtable[3] `0x3b8b060`, per `page` block = token `0x2d1` at `0x32d6cc0`) appends pages to the vector `janela+0xd8` without clearing. Text from memory: `CMemoryFile` (vtable `0x4559758`; buffer `{dados, ?, alocador char 0x4fea420}` via `0x3bb5200`), `CLexer` via `0x3b58cf0(lexer, &arquivo, 0)` with the vtable swapped to `CTextLexer` (`0x4556c20`), reader `0x3b8e670(leitor, &lexer)`; then `0x32d5230(secao)` for each new section. Test requests `layout <janela> <arquivo>` and `layout_tirar <janela> <indice>` in the core |
+| C2b.2 | Redo steps 1 to 4 with the game open and the window closed, without recreating the window; the interface shows the new tabs when opened | OK (2026-10-04, game open, main menu): removed the tab from the mod's `settings_layout.txt` and added one built by the DLL with the "Idioma" section; on opening the window, the 4th tab showed "Idioma" with the Auto Raid option, without failure. Missing: find the window without the address passed by hand; free the memory of the removed pages |
+| C2b.3 | Register a new option after the lock and apply its value through the DLL | OK (2026-10-04): request `opcao mods auto_raid_teste2 AR_CFG_TESTE2 1` with the game open; the game warns `registered after setting lockdown, may get lost` (it only means it does not receive the value from the file); the value is applied by `0x3b46990(opcao, valor, 1)`, the same as the checkbox click (`0x32d6610`); the option appeared in the rebuilt tab and, when changed by the user, was saved to `pdx_settings.txt` together with the other one |
+| C2b.4 | Test request `config recarregar` and, later, a `config.txt` watcher in `-debug_mode` | OK (2026-10-05): in the loader (`ar_proxy.c`, section "configuracoes dos mods"). Startup: finds the mods via `dlc_load.json`, reads `plugin/config.txt`, registers the options when the manager is created and, via a hook on the window build method (`0x32d7700`), appends the generated Mods page and saves the window (the game rebuilds the window on its own, e.g.: when reloading localization in `-debug_mode`, and the hook appends again). Reload: the watcher (every ~1 s, only in `-debug_mode`) saw `liga teste3 1` added to `config.txt`, registered the option with the game open, applied the default and rebuilt the tab; the user saw the three options with the right values. The mod no longer ships `settings_layout.txt` |
 
-### 11.7 Correcoes que a prova pediu
-- Opcoes apagadas quando o jogo abre sem a DLL (C3): FEITO e conferido em 2026-10-05 (jogo aberto sem a DLL apagou a secao; aberto de novo com a DLL, o log mostrou `secao "mods" devolvida ao pdx_settings.txt a partir da copia` antes do registro das opcoes). o carregador guarda uma copia propria das secoes dos mods
-  (ex.: `C:\CK3\binaries\ck3\configuracoes_mods.txt`), atualizada sempre que o jogo regrava o `pdx_settings.txt`
-  com elas. Na abertura, antes de o jogo ler o arquivo (no `DllMain`), se a secao de um mod registrado faltar no
-  `pdx_settings.txt`, o carregador a devolve a partir da copia.
-- Padrao que nao vale sem entrada no arquivo (C3): FEITO pelo segundo caminho (o carregador aplica o padrao do `config.txt`, com `0x3b46990`, as opcoes sem entrada no arquivo, logo depois da montagem da janela; conferido com a `teste3`). Primeiro caminho, se um dia precisar: investigar como o jogo aplica o padrao das opcoes dele (a
-  `prompt_for_beta` tambem passa 1 na construtora) ou, depois do `LoadSettings`, gravar o padrao do `config.txt` nas
-  opcoes sem entrada pelo mesmo caminho da interface.
-- Cliques sinteticos nao chegam ao jogo: o Windows nao deixa um processo em segundo plano trazer o jogo para a frente
-  (os cliques cairam no app do Claude). Nos testes de interface, o usuario clica; a leitura e pela memoria e pelo
-  arquivo.
+### 11.7 Fixes the proof called for
+- Options erased when the game opens without the DLL (C3): DONE and checked on 2026-10-05 (game opened without the DLL erased the section; opened again with the DLL, the log showed `secao "mods" devolvida ao pdx_settings.txt a partir da copia` before the options were registered). the loader keeps its own copy of the mod sections
+  (e.g.: `C:\CK3\binaries\ck3\configuracoes_mods.txt`), updated whenever the game rewrites `pdx_settings.txt`
+  with them. At startup, before the game reads the file (in `DllMain`), if the section of a registered mod is missing
+  from `pdx_settings.txt`, the loader restores it from the copy.
+- Default that does not apply without an entry in the file (C3): DONE via the second path (the loader applies the `config.txt` default, with `0x3b46990`, to options without an entry in the file, right after the window is built; checked with `teste3`). First path, if ever needed: investigate how the game applies the default of its own options (the
+  `prompt_for_beta` option also passes 1 in the constructor) or, after `LoadSettings`, write the `config.txt` default to the
+  options without an entry through the same interface path.
+- Synthetic clicks do not reach the game: Windows does not let a background process bring the game to the foreground
+  (the clicks landed in the Claude app). In interface tests, the user clicks; reading is done through memory and the
+  file.

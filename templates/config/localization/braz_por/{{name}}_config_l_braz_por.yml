@@ -1,0 +1,5 @@
+﻿l_braz_por:
+ {{name}}_cfg_titulo: "{{title}}"
+ {{name}}_cfg_grupo_geral: "Geral"
+ {{name}}_cfg_ligado: "Ligado"
+ {{name}}_cfg_ligado_TOOLTIP: "Liga ou desliga o {{title}}."

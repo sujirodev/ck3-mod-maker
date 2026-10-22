@@ -1,4 +1,4 @@
-# Logs do jogo (Documents/.../logs): error.log em entradas, filtradas pelos arquivos de um mod.
+# Game logs (Documents/.../logs): error.log split into entries, optionally filtered by a mod's files.
 import os, re
 from . import config
 
@@ -7,7 +7,7 @@ HEAD = re.compile(r'^\[(\d\d:\d\d:\d\d)\]\[(\w)\]\[([^\]]+)\]: (.*)')
 
 
 def mark():
-    """Posicao atual do error.log, para ler so o que vier depois (o jogo recria o arquivo ao abrir)."""
+    """Current error.log position, to read only what comes after (the game recreates the file on start)."""
     return os.path.getsize(ERROR_LOG) if os.path.exists(ERROR_LOG) else 0
 
 
@@ -23,12 +23,12 @@ def entries(since=0):
     for l in text.splitlines():
         m = HEAD.match(l)
         if m:
-            cur = {'hora': m.group(1), 'nivel': m.group(2), 'origem': m.group(3), 'msg': m.group(4), 'resto': []}
+            cur = {'time': m.group(1), 'level': m.group(2), 'source': m.group(3), 'msg': m.group(4), 'rest': []}
             out.append(cur)
         elif cur is not None and l.strip():
-            cur['resto'].append(l.strip())
+            cur['rest'].append(l.strip())
     for e in out:
-        e['arquivos'] = re.findall(r'file: (\S+) line: (\d+)', ' '.join([e['msg']] + e['resto']))
+        e['files'] = re.findall(r'file: (\S+) line: (\d+)', ' '.join([e['msg']] + e['rest']))
     return out
 
 
@@ -41,21 +41,21 @@ def mod_files(mod_path):
 
 
 def errors(mod_path=None, since=0, prefix=None, limit=100):
-    """Erros do error.log. mod_path: so os que citam arquivo do mod ou o prefixo das chaves dele."""
+    """error.log errors. mod_path: only those that cite a file of the mod or its key prefix."""
     es = entries(since)
     if mod_path:
         files = mod_files(mod_path)
         name = prefix or os.path.basename(mod_path.rstrip('/\\'))
-        es = [e for e in es if any(f in files for f, _ in e['arquivos'])
-              or name in e['msg'] or any(name in r for r in e['resto'])]
-    # agrupa repetidos (mesma mensagem e local)
+        es = [e for e in es if any(f in files for f, _ in e['files'])
+              or name in e['msg'] or any(name in r for r in e['rest'])]
+    # group repeats (same message and location)
     seen, out = {}, []
     for e in es:
-        k = (e['msg'], tuple(e['arquivos'][:1]))
+        k = (e['msg'], tuple(e['files'][:1]))
         if k in seen:
-            seen[k]['vezes'] += 1
+            seen[k]['count'] += 1
             continue
-        e['vezes'] = 1
+        e['count'] = 1
         seen[k] = e
         out.append(e)
     return out[:limit]
@@ -64,6 +64,6 @@ def errors(mod_path=None, since=0, prefix=None, limit=100):
 def fmt(es):
     lines = []
     for e in es:
-        lines.append('[%s][%s] %s%s' % (e['hora'], e['origem'], e['msg'], ' (x%d)' % e['vezes'] if e['vezes'] > 1 else ''))
-        lines += ['    ' + r for r in e['resto'][:4]]
+        lines.append('[%s][%s] %s%s' % (e['time'], e['source'], e['msg'], ' (x%d)' % e['count'] if e['count'] > 1 else ''))
+        lines += ['    ' + r for r in e['rest'][:4]]
     return '\n'.join(lines)

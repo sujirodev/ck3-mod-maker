@@ -1,0 +1,14 @@
+﻿namespace = {{prefix}}
+
+# Evento de teste: python -m ck3ctl effect "trigger_event = {{prefix}}.0001"
+{{prefix}}.0001 = {
+	type = character_event
+	title = {{prefix}}.0001.t
+	desc = {{prefix}}.0001.desc
+	theme = default
+	left_portrait = root
+
+	option = {
+		name = {{prefix}}.0001.a
+	}
+}

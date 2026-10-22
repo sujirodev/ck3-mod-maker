@@ -1,9 +1,12 @@
-# Conferencias estaticas dos arquivos de um mod, antes de abrir o jogo. Cada funcao devolve [(linha, mensagem)].
+# Static checks on a mod's files, before starting the game. Each function returns [(line, message)].
+# The plugin.txt / config.txt keywords (nome, api, fonte, var, livre, liga, inteiro, real, mod, titulo, grupo) are
+# Portuguese because the DLL parses them; they stay as they are.
 import json, os, re, subprocess, tempfile
 from . import config
 
 LOC_LINE = re.compile(r'^\s*([\w.\-\']+):(\d+)?\s*"(.*)"\s*(#.*)?$')
 CK3_API = 7
+STATUS = ('todo', 'in_progress', 'done', 'blocked')
 
 
 def _read(p):
@@ -15,7 +18,7 @@ def _read(p):
 
 
 def braces(text):
-    """Chaves abertas/fechadas, fora de comentario e de texto entre aspas."""
+    """Open/close braces, outside comments and quoted text."""
     errs, stack = [], []
     for n, line in enumerate(text.splitlines(), 1):
         q = False
@@ -30,39 +33,39 @@ def braces(text):
                 stack.append(n)
             elif ch == '}':
                 if not stack:
-                    errs.append((n, '"}" sem "{" correspondente'))
+                    errs.append((n, '"}" without a matching "{"'))
                 else:
                     stack.pop()
         if q:
-            errs.append((n, 'aspas sem fechar na linha'))
-    errs += [(n, '"{" aberta aqui nunca fecha') for n in stack]
+            errs.append((n, 'unclosed quote on this line'))
+    errs += [(n, '"{" opened here is never closed') for n in stack]
     return errs
 
 
 def script(p):
     bom, text = _read(p)
     if bom is None:
-        return [(0, 'nao e UTF-8 valido: %s' % text)]
+        return [(0, 'not valid UTF-8: %s' % text)]
     errs = braces(text)
     if not bom and any(ord(c) > 127 for c in text):
-        errs.append((0, 'tem acentos/nao-ASCII sem BOM UTF-8: o jogo le errado; grave como UTF-8 com BOM'))
+        errs.append((0, 'non-ASCII text without a UTF-8 BOM: the game misreads it; save as UTF-8 with BOM'))
     return errs
 
 
 def localization(p):
     bom, text = _read(p)
     if bom is None:
-        return [(0, 'nao e UTF-8 valido: %s' % text)]
-    errs = [] if bom else [(1, 'localizacao exige UTF-8 com BOM (o jogo ignora o arquivo sem BOM)')]
+        return [(0, 'not valid UTF-8: %s' % text)]
+    errs = [] if bom else [(1, 'localization needs UTF-8 with BOM (the game ignores the file without it)')]
     fn = os.path.basename(p)
     m = re.search(r'_l_(\w+)\.yml$', fn)
     if not m:
-        return errs + [(0, 'nome do arquivo deve terminar em _l_<idioma>.yml')]
+        return errs + [(0, 'file name must end in _l_<language>.yml')]
     lang = m.group(1)
     lines = text.splitlines()
     first = next(((i, l) for i, l in enumerate(lines, 1) if l.strip() and not l.strip().startswith('#')), None)
     if not first or first[1].strip() != 'l_%s:' % lang:
-        errs.append((first[0] if first else 1, 'primeira linha deve ser "l_%s:"' % lang))
+        errs.append((first[0] if first else 1, 'first line must be "l_%s:"' % lang))
     seen = {}
     for i, l in enumerate(lines, 1):
         s = l.strip()
@@ -70,58 +73,59 @@ def localization(p):
             continue
         mm = LOC_LINE.match(l)
         if not mm:
-            errs.append((i, 'linha fora do formato  chave: "texto"  (ou chave:0 "texto")'))
+            errs.append((i, 'line does not match  key: "text"  (or key:0 "text")'))
             continue
         if not l.startswith(' '):
-            errs.append((i, 'chave sem recuo de um espaco'))
+            errs.append((i, 'key not indented by one space'))
         k = mm.group(1)
         if k in seen:
-            errs.append((i, 'chave repetida (primeira na linha %d)' % seen[k]))
+            errs.append((i, 'duplicate key (first on line %d)' % seen[k]))
         seen[k] = i
     return errs
 
 
 def descriptor(p):
     _, text = _read(p)
-    errs = [(0, 'falta %s=' % k) for k in ('name', 'version', 'supported_version') if not re.search(r'(?m)^%s\s*=' % k, text)]
+    errs = [(0, 'missing %s=' % k) for k in ('name', 'version', 'supported_version')
+            if not re.search(r'(?m)^%s\s*=' % k, text)]
     return errs + braces(text)
 
 
 def manifest(p):
-    """plugin/plugin.txt (docs/dll/arquitetura_dll.md, secao 6)."""
+    """plugin/plugin.txt (docs/dll/arquitetura_dll.md, section 6)."""
     _, text = _read(p)
-    errs, nome, api, fontes = [], None, None, []
+    errs, name, api, sources = [], None, None, []
     d = os.path.dirname(p)
     for i, l in enumerate(text.splitlines(), 1):
         s = l.split('#', 1)[0].split()
         if not s:
             continue
         if s[0] == 'nome':
-            nome = s[1] if len(s) > 1 else None
+            name = s[1] if len(s) > 1 else None
         elif s[0] == 'api':
             api = int(s[1]) if len(s) > 1 and s[1].isdigit() else None
             if api is None or api > CK3_API:
-                errs.append((i, 'api invalida (o nucleo e da %d)' % CK3_API))
+                errs.append((i, 'invalid api (the core is api %d)' % CK3_API))
         elif s[0] == 'fonte':
-            fontes.append(s[1])
+            sources.append(s[1])
             if not os.path.exists(os.path.join(d, s[1])):
-                errs.append((i, 'fonte %s nao existe na pasta plugin' % s[1]))
+                errs.append((i, 'source %s does not exist in the plugin folder' % s[1]))
         elif s[0] == 'var':
             if len(s) != 2:
-                errs.append((i, 'uso: var <nome>'))
+                errs.append((i, 'usage: var <name>'))
         elif len(s) > 2 or (len(s) == 2 and s[1] != 'livre'):
-            errs.append((i, 'linha de efeito: <efeito> ou <efeito> livre'))
-    if not nome:
-        errs.append((0, 'falta "nome <mod>"'))
+            errs.append((i, 'effect line: <effect> or <effect> livre'))
+    if not name:
+        errs.append((0, 'missing "nome <mod>"'))
     if api is None:
-        errs.append((0, 'falta "api <versao>"'))
-    if not fontes:
-        errs.append((0, 'falta "fonte <arquivo.c>"'))
+        errs.append((0, 'missing "api <version>"'))
+    if not sources:
+        errs.append((0, 'missing "fonte <file.c>"'))
     return errs
 
 
 def mods_config(p):
-    """plugin/config.txt (aba Mods; docs/dll/arquitetura_dll.md, secao 11.3)."""
+    """plugin/config.txt (Mods tab; docs/dll/arquitetura_dll.md, section 11.3)."""
     _, text = _read(p)
     errs = []
     n_args = {'liga': (2, 2), 'inteiro': (4, 6), 'real': (5, 6), 'mod': (1, 1), 'titulo': (1, 1), 'grupo': (2, 2)}
@@ -130,30 +134,27 @@ def mods_config(p):
         if not s:
             continue
         if s[0] not in n_args:
-            errs.append((i, 'tipo desconhecido "%s" (liga, inteiro, real, mod, titulo, grupo)' % s[0]))
+            errs.append((i, 'unknown type "%s" (liga, inteiro, real, mod, titulo, grupo)' % s[0]))
             continue
         lo, hi = n_args[s[0]]
         if not lo <= len(s) - 1 <= hi:
-            errs.append((i, '%s espera de %d a %d argumentos' % (s[0], lo, hi)))
+            errs.append((i, '%s takes %d to %d arguments' % (s[0], lo, hi)))
     return errs
 
 
-STATUS = ('todo', 'in_progress', 'done', 'blocked')
-
-
 def features(p):
-    """dev/features.json do mod: ids unicos, dependencias existentes, uma in_progress, done so com evidencia."""
+    """The mod's dev/features.json: unique ids, existing dependencies, one in_progress, done only with evidence."""
     try:
         fs = json.load(open(p, encoding='utf-8-sig')).get('features')
     except ValueError as e:
-        return [(0, 'JSON invalido: %s' % e)]
+        return [(0, 'invalid JSON: %s' % e)]
     if not isinstance(fs, list):
-        return [(0, 'falta a lista "features"')]
+        return [(0, 'missing the "features" list')]
     errs, by_id = [], {}
     for f in fs:
         fid = f.get('id')
         if not fid or fid in by_id:
-            errs.append((0, 'id ausente ou repetido: %r' % fid))
+            errs.append((0, 'missing or duplicate id: %r' % fid))
         by_id[fid] = f
     for f in fs:
         fid, st = f.get('id'), f.get('status')
@@ -161,21 +162,21 @@ def features(p):
             errs.append((0, '%s: status "%s" (use %s)' % (fid, st, ', '.join(STATUS))))
         for d in f.get('depends_on', []):
             if d not in by_id:
-                errs.append((0, '%s: depends_on "%s", que nao existe' % (fid, d)))
+                errs.append((0, '%s: depends_on "%s", which does not exist' % (fid, d)))
             elif st == 'done' and by_id[d].get('status') != 'done':
-                errs.append((0, '%s: done, mas a dependencia %s nao esta done' % (fid, d)))
+                errs.append((0, '%s: done, but dependency %s is not done' % (fid, d)))
         if not f.get('test'):
-            errs.append((0, '%s: falta "test" (como conferir a feature)' % fid))
+            errs.append((0, '%s: missing "test" (how to check the feature)' % fid))
         if st == 'done' and not str(f.get('evidence', '')).strip():
-            errs.append((0, '%s: done sem evidence (data, o que foi rodado e o resultado)' % fid))
+            errs.append((0, '%s: done without evidence (date, what was run and the result)' % fid))
     active = [f.get('id') for f in fs if f.get('status') == 'in_progress']
     if len(active) > 1:
-        errs.append((0, 'mais de uma feature in_progress: %s (uma por vez)' % ', '.join(active)))
+        errs.append((0, 'more than one feature in_progress: %s (one at a time)' % ', '.join(active)))
     return errs
 
 
 def plugin_c(p):
-    """Compila o .c com o tcc.exe (so sintaxe e tipos; os simbolos sao ligados pelo nucleo no jogo)."""
+    """Compile the .c with tcc.exe (syntax and types only; symbols are linked by the core inside the game)."""
     tcc = os.path.join(config.TINYCC, 'win32', 'tcc.exe')
     inc = os.path.join(config.BIN, 'ck3_custom', 'include')
     if not os.path.exists(tcc):
@@ -227,7 +228,7 @@ def check_mod(mod_path):
 
 
 def loc_keys(mod_path):
-    """Chaves de localizacao definidas no mod, por idioma."""
+    """Localization keys defined by the mod, per language."""
     keys = {}
     for dp, _, fns in os.walk(os.path.join(mod_path, 'localization')):
         for fn in fns:
@@ -240,7 +241,7 @@ def loc_keys(mod_path):
 
 
 def missing_loc(mod_path):
-    """Chaves presentes num idioma e ausentes em outro."""
+    """Keys present in one language and missing in another."""
     keys = loc_keys(mod_path)
-    todas = set().union(*keys.values()) if keys else set()
-    return {lang: sorted(todas - ks) for lang, ks in keys.items() if todas - ks}
+    every = set().union(*keys.values()) if keys else set()
+    return {lang: sorted(every - ks) for lang, ks in keys.items() if every - ks}

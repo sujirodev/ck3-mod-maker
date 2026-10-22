@@ -1,10 +1,10 @@
-# Plugin C do {{titulo}} (docs/dll/arquitetura_dll.md, secao 6). Efeito ou variavel nova aqui exige reabrir o jogo;
-# mudanca no .c recompila sozinha em -debug_mode.
-# Linhas: nome <mod> | api <versao> | fonte <arquivo.c> | <efeito> (escopo exercito) | <efeito> livre | var <nome>
-nome {{nome}}
+# {{title}} C plugin manifest (ck3-mod-maker docs/dll/arquitetura_dll.md, section 6). A new effect or variable here
+# needs a game restart; changes to the .c recompile by themselves in -debug_mode. Keywords are read by the DLL:
+# nome <mod> | api <version> | fonte <file.c> | <effect> (army scope) | <effect> livre (any scope) | var <name>
+nome {{name}}
 api 7
-fonte {{nome}}.c
+fonte {{name}}.c
 
-{{prefixo}}_ping livre
+{{prefix}}_ping livre
 
-var {{prefixo}}_resp
+var {{prefix}}_resp
