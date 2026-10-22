@@ -1,8 +1,8 @@
-// ck3_custom - carregador (fixo; docs/arquitetura_dll.md).
-// Carregado como winmm.dll na pasta binaries do CK3 1.19.0.6 (ver exports.h). Repassa as funcoes para a DLL de
-// mesmo nome do sistema, intercepta o envio de comandos, registra os efeitos de script declarados nos plugins dos mods
-// ativos (plugin/plugin.txt) e hospeda o nucleo (ck3_custom_core.dll), que em -debug_mode pode ser trocado com o jogo
-// aberto. Nenhuma logica de mod mora aqui. Enderecos em docs/re_notas.md.
+// ck3_custom - loader (fixed; docs/dll/arquitetura_dll.md).
+// Loaded as winmm.dll from the binaries folder of CK3 1.19.0.6 (see exports.h). Forwards the functions to the system
+// DLL of the same name, intercepts command posting, registers the script effects declared in the plugins of the active
+// mods (plugin/plugin.txt) and hosts the core (ck3_custom_core.dll), which in -debug_mode can be swapped with the game
+// open. No mod logic lives here. Addresses in docs/dll/re_notas.md.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdio.h>
@@ -12,7 +12,7 @@
 #include <ctype.h>
 #include "ar_host.h"
 
-#define RVA_POST          0x973e00   // Post(despachante, comando*, flags)
+#define RVA_POST          0x973e00   // Post(dispatcher, command*, flags)
 #define RVA_DISPATCHER    0x5762170
 #define EXE_SIZE_OF_IMAGE_MIN 0x5b00000
 #define WM_AR_COMMAND     (WM_APP + 0x5A1D)
@@ -24,9 +24,9 @@ static const uint8_t POST_PROLOGUE[15] = {
 	0x48, 0x83, 0xEC, 0x20          // sub rsp, 0x20
 };
 
-// ---- repasse para a DLL do sistema ----
-// (version.dll nao serve: o Windows aplica um shim de compatibilidade a qualquer ck3.exe e ele carrega a
-// version.dll do System32 antes das importacoes do jogo)
+// ---- forwarding to the system DLL ----
+// (version.dll does not work: Windows applies a compatibility shim to any ck3.exe and it loads the System32
+// version.dll before the game's imports)
 #include "exports.h"
 
 #define DECL(name) void *real_##name; \
@@ -68,11 +68,11 @@ static void rlog(const char *fmt, ...)
 	LeaveCriticalSection(&log_lock);
 }
 
-// ---- nucleo ----
+// ---- core ----
 static uint8_t *base;
 static DWORD main_thread;
 static const ar_core *volatile core;
-static volatile LONG core_inflight;   // chamadas ao nucleo em andamento (para descarregar com seguranca)
+static volatile LONG core_inflight;   // core calls in progress (to unload safely)
 
 static const ar_core *core_enter(void)
 {
@@ -84,7 +84,7 @@ static const ar_core *core_enter(void)
 }
 static void core_leave(void) { InterlockedDecrement(&core_inflight); }
 
-// ---- interceptacao do envio ----
+// ---- post interception ----
 typedef uint8_t (*post_fn)(void *dispatcher, void *cmd, int flags, void *r9);
 static post_fn post_original;
 
@@ -104,20 +104,20 @@ static uint8_t host_post(void *cmd, int flags)
 	return ((post_fn)(base + RVA_POST))(base + RVA_DISPATCHER, cmd, flags, NULL);
 }
 
-// ---- protecao contra falha no nucleo (thread principal) ----
-// Se o nucleo causar violacao de acesso ao chamar uma funcao do jogo, volta para o ponto seguro em vez de
-// derrubar o jogo. Serve para desenvolvimento; o estado do jogo pode ficar inconsistente depois de uma falha.
+// ---- protection against faults in the core (main thread) ----
+// If the core causes an access violation while calling a game function, return to the safe point instead of
+// crashing the game. Meant for development; the game state may be inconsistent after a fault.
 static void *guard_buf[5];
 static volatile DWORD guard_thread;
 static volatile DWORD64 guard_fault_rip, guard_fault_addr;
 static volatile DWORD guard_fault_code;
-static uint8_t *text_lo, *text_hi;            // .text do ck3.exe
-static char guard_stack[160];                 // enderecos de retorno no exe achados na pilha da falha
+static uint8_t *text_lo, *text_hi;            // ck3.exe .text
+static char guard_stack[160];                 // return addresses in the exe found on the faulting stack
 static int looks_ret(const uint8_t *v);
 
 static void guard_recover(void) { __builtin_longjmp(guard_buf, 1); }
 
-// segundo ponto seguro: efeitos de script (podem rodar fora da thread principal; um por vez, fx_lock)
+// second safe point: script effects (may run outside the main thread; one at a time, fx_lock)
 static void *fx_guard_buf[5];
 static volatile DWORD fx_guard_thread;
 static void fx_guard_recover(void) { __builtin_longjmp(fx_guard_buf, 1); }
@@ -165,22 +165,22 @@ static __attribute__((noinline)) void run_command_guarded(const ar_core *c, cons
 	}
 }
 
-// configuracoes dos mods (definidas mais abaixo)
+// mod settings (defined further below)
 static void cfg_reload(void);
 static void cfg_watch(void);
 static int debug_mode;
 static int mod_dirs(char (*dirs)[MAX_PATH], int max);
 static char *read_file(const char *path, size_t *len_out);
 
-// ---- janela do jogo: os pedidos rodam na thread principal ----
-// Fila de linhas de pedido: entram pelo arquivo ck3_custom_cmd.txt (thread de trabalho) ou pelo nucleo (run_main,
-// qualquer thread) e sao executadas na thread principal, pelo WndProc da janela do jogo.
+// ---- game window: requests run on the main thread ----
+// Queue of request lines: they come in through the ck3_custom_cmd.txt file (worker thread) or from the core (run_main,
+// any thread) and are executed on the main thread, by the game window's WndProc.
 #define Q_MAX 64
 static WNDPROC old_wndproc;
 static HWND game_wnd;
 static char q_lines[Q_MAX][512];
 static int q_head, q_count;
-static DWORD q_since;   // quando a fila deixou de estar vazia
+static DWORD q_since;   // when the queue stopped being empty
 static CRITICAL_SECTION q_lock;
 
 static int q_push(const char *line)
@@ -222,15 +222,15 @@ static void host_run_main(const char *line)
 	}
 	HWND w = game_wnd;
 	if (w)
-		PostMessageW(w, WM_AR_COMMAND, 0, 0);   // sem janela ainda: a thread de trabalho acha e envia
+		PostMessageW(w, WM_AR_COMMAND, 0, 0);   // no window yet: the worker thread finds it and posts
 }
 
-// executa os pedidos da fila; so na thread principal (WndProc da janela do jogo ou bomba sem janela)
+// runs the queued requests; main thread only (game window WndProc or the windowless pump)
 static void q_drain(void)
 {
 	static char line[512];
 	while (q_pop(line)) {
-		if (strncmp(line, "status ", 7) != 0)   // o status vai a cada segundo: fora do log
+		if (strncmp(line, "status ", 7) != 0)   // status comes every second: kept out of the log
 			rlog("> %s", line);
 		if (!strcmp(line, "config recarregar")) {
 			cfg_reload();
@@ -267,22 +267,22 @@ static BOOL CALLBACK find_wnd(HWND w, LPARAM lp)
 	return TRUE;
 }
 
-// ---- jogo sem graficos (-nographics): diagnostico e bomba da fila (docs/plano_sem_graficos.md) ----
-// Sem janela nao ha WndProc para atender a fila. Funcoes que o laco do jogo chama sao trocadas na tabela de
-// importacao do ck3.exe; elas contam as chamadas por thread e, na thread principal, a escolhida drena a fila.
+// ---- game without graphics (-nographics): diagnostics and queue pump (docs/dll/plano_sem_graficos.md) ----
+// Without a window there is no WndProc to serve the queue. Functions the game loop calls are swapped in the ck3.exe
+// import table; they count calls per thread and, on the main thread, the chosen one drains the queue.
 enum { G_QPC, G_SLEEP, G_SLEEPEX, G_TGT, G_PEEK, G_GETMSG, G_SWITCH, G_WFSO, G_WFSOEX, G_N };
 static const struct { const char *dll, *fn; } g_imp[G_N] = {
 	{ "KERNEL32.dll", "QueryPerformanceCounter" }, { "KERNEL32.dll", "Sleep" }, { "KERNEL32.dll", "SleepEx" },
 	{ "WINMM.dll", "timeGetTime" }, { "USER32.dll", "PeekMessageW" }, { "USER32.dll", "GetMessageW" },
 	{ "KERNEL32.dll", "SwitchToThread" }, { "KERNEL32.dll", "WaitForSingleObject" },
 	{ "KERNEL32.dll", "WaitForSingleObjectEx" } };
-// ordem de preferencia da bomba: o ponto do laco de mensagens primeiro (o mesmo em que a WndProc roda)
+// pump preference order: the message loop site first (the same one where the WndProc runs)
 static const int g_pref[G_N] = { G_PEEK, G_GETMSG, G_TGT, G_SLEEPEX, G_SLEEP, G_QPC, G_SWITCH, G_WFSO, G_WFSOEX };
-#define G_PUMP_CAND 6   // SwitchToThread e as esperas nao servem de bomba
+#define G_PUMP_CAND 6   // SwitchToThread and the waits are not usable as a pump
 #define G_SITES 16
 static void *g_orig[G_N];
 static volatile LONG64 g_main[G_N];
-static struct { uint32_t rva, n; } g_site[G_N][G_SITES];   // pontos de chamada na thread principal
+static struct { uint32_t rva, n; } g_site[G_N][G_SITES];   // call sites on the main thread
 static int no_graphics, diag;
 static volatile int pump_hook = -1;
 static int pump_forced;
@@ -306,7 +306,7 @@ static void pump(void)
 
 static void g_hit(int i, void *ra)
 {
-	// so a thread principal conta: SwitchToThread vai a milhoes por segundo nas outras (contador comum disputado)
+	// only the main thread counts: SwitchToThread runs millions of times per second on the others (contended shared counter)
 	if (GetCurrentThreadId() != main_thread)
 		return;
 	g_main[i]++;
@@ -375,7 +375,7 @@ static void g_install(void)
 	rlog("ganchos de importacao: %d de %d instalados%s", n, G_N, no_graphics ? " (-nographics)" : "");
 }
 
-// amostras de onde a thread principal esta (so com diagnostico ligado)
+// samples of where the main thread is (only with diagnostics on)
 #define S_MAX 24
 static HANDLE main_h;
 static struct { uint32_t rva, n; char mod[24]; } s_tab[S_MAX];
@@ -398,7 +398,7 @@ static void sample_main(void)
 	size_t n = 0;
 	if (SuspendThread(main_h) == (DWORD)-1)
 		return;
-	// nada que tome trava (heap, log) enquanto a thread principal esta suspensa
+	// nothing that takes a lock (heap, log) while the main thread is suspended
 	if (GetThreadContext(main_h, &ctx)) {
 		MEMORY_BASIC_INFORMATION mi;
 		if (VirtualQuery((void *)ctx.Rsp, &mi, sizeof mi)) {
@@ -463,8 +463,8 @@ static void diag_init(void)
 	main_h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, main_thread);
 }
 
-// batimento: chamadas por segundo de cada gancho (thread principal / todas), amostras da thread principal e, a cada
-// 6 batimentos, os pontos de chamada mais frequentes na thread principal. Escolhe a bomba sem janela.
+// heartbeat: calls per second of each hook (main thread / all), main thread samples and, every
+// 6 heartbeats, the most frequent call sites on the main thread. Picks the windowless pump.
 static void heartbeat(DWORD ms, int sites)
 {
 	static LONG64 m0[G_N], p0;
@@ -495,7 +495,7 @@ static void heartbeat(DWORD ms, int sites)
 			                strcmp(s_tab[best].mod, "exe") ? s_tab[best].mod : "",
 			                strcmp(s_tab[best].mod, "exe") ? " via " : "", s_tab[best].rva,
 			                s_tab[best].n * 100 / s_total);
-			s_tab[best].n = 0;   // ja listado (a tabela e zerada logo abaixo)
+			s_tab[best].n = 0;   // already listed (the table is cleared right below)
 		}
 		rlog("batimento: thread principal (%d amostras):%s", s_total, buf);
 		memset(s_tab, 0, sizeof s_tab);
@@ -509,9 +509,9 @@ static void heartbeat(DWORD ms, int sites)
 			if (len)
 				rlog("batimento: pontos de %s na principal:%s", g_imp[i].fn, buf);
 		}
-	// a cada batimento: o ponto preferido que a thread principal chamou >= 10 vezes por segundo. Durante a carga a
-	// thread principal fica em SwitchToThread (espera ativa, nao serve: ponto no meio da carga); depois dela, num
-	// laco de PeekMessageW (teste de 2026-10-07)
+	// every heartbeat: the preferred site the main thread called >= 10 times per second. During loading the
+	// main thread sits in SwitchToThread (busy wait, not usable: a site in the middle of loading); after it, in a
+	// PeekMessageW loop (test of 2026-10-07)
 	if (no_graphics && !game_wnd && !pump_forced)
 		for (int k = 0; k < G_PUMP_CAND; k++)
 			if (g_orig[g_pref[k]] && rate[g_pref[k]] >= 10) {
@@ -524,7 +524,7 @@ static void heartbeat(DWORD ms, int sites)
 			}
 }
 
-// ---- carga e recarga do nucleo ----
+// ---- core load and reload ----
 static ar_host host;
 static HMODULE core_mod;
 static char core_live[MAX_PATH + 64];
@@ -549,7 +549,7 @@ static void core_unload(void)
 
 static void core_load(void)
 {
-	// com o pid: outra instancia pode estar com a sua copia carregada
+	// with the pid: another instance may have its own copy loaded
 	snprintf(core_live, sizeof core_live, "%sck3_custom_core_live_%lu_%d.dll", dll_dir, GetCurrentProcessId(), ++core_seq);
 	if (!CopyFileA(core_path, core_live, FALSE)) {
 		rlog("nucleo: copia falhou (erro %lu)", GetLastError());
@@ -578,7 +578,7 @@ static DWORD WINAPI worker_thread(LPVOID arg)
 	WIN32_FILE_ATTRIBUTE_DATA f0;
 	if (GetFileAttributesExA(core_path, GetFileExInfoStandard, &f0))
 		core_time = f0.ftLastWriteTime;
-	// limpa copias antigas (as carregadas, desta ou de outra instancia, nao se apagam)
+	// cleans up old copies (loaded ones, from this or another instance, cannot be deleted)
 	char pat[MAX_PATH + 64];
 	snprintf(pat, sizeof pat, "%sck3_custom_core_live_*.dll", dll_dir);
 	WIN32_FIND_DATAA fd;
@@ -605,7 +605,7 @@ static DWORD WINAPI worker_thread(LPVOID arg)
 				hb_last = now;
 			}
 		}
-		// status a cada segundo (sem graficos a cada 250 ms: pausa na carga), ck3_custom\status.json, so com canal
+		// status every second (without graphics every 250 ms: pause on load), ck3_custom\status.json, only with a channel
 		int ph = pump_hook;
 		if (debug_mode && (no_graphics || tick % 4 == 2) && core && (!no_graphics || ph >= 0) && q_count < Q_MAX / 2) {
 			char st[64];
@@ -613,11 +613,11 @@ static DWORD WINAPI worker_thread(LPVOID arg)
 			q_push(st);
 		}
 
-		// nucleo novo ou alterado? (so em -debug_mode)
+		// new or changed core? (only in -debug_mode)
 		WIN32_FILE_ATTRIBUTE_DATA fa;
 		if (debug_mode && GetFileAttributesExA(core_path, GetFileExInfoStandard, &fa) &&
 		    CompareFileTime(&fa.ftLastWriteTime, &core_time) != 0) {
-			Sleep(300);   // espera a copia terminar
+			Sleep(300);   // wait for the copy to finish
 			WIN32_FILE_ATTRIBUTE_DATA fb;
 			if (GetFileAttributesExA(core_path, GetFileExInfoStandard, &fb) &&
 			    CompareFileTime(&fa.ftLastWriteTime, &fb.ftLastWriteTime) == 0 && !q_count) {
@@ -627,7 +627,7 @@ static DWORD WINAPI worker_thread(LPVOID arg)
 			}
 		}
 
-		// pedido pelo arquivo? (so em -debug_mode: em producao ninguem comanda o jogo de fora)
+		// request through the file? (only in -debug_mode: in production nobody drives the game from outside)
 		FILE *f = debug_mode ? fopen(cmd_path, "r") : NULL;
 		if (f) {
 			char line[512] = "";
@@ -642,7 +642,7 @@ static DWORD WINAPI worker_thread(LPVOID arg)
 		if (!q_count)
 			continue;
 
-		// fila parada (jogo carregando, fechando ou janela recriada): descarta
+		// stalled queue (game loading, closing or window recreated): discard
 		if (GetTickCount() - q_since > 8000) {
 			char line[512];
 			while (q_pop(line))
@@ -651,7 +651,7 @@ static DWORD WINAPI worker_thread(LPVOID arg)
 			continue;
 		}
 		if (pump_hook >= 0)
-			continue;   // sem janela: a bomba atende na thread principal
+			continue;   // no window: the pump serves it on the main thread
 		if (game_wnd && (!IsWindow(game_wnd) ||
 		                 (WNDPROC)GetWindowLongPtrW(game_wnd, GWLP_WNDPROC) != ar_wndproc)) {
 			rlog("janela do jogo mudou; procurando de novo");
@@ -661,7 +661,7 @@ static DWORD WINAPI worker_thread(LPVOID arg)
 			HWND w = NULL;
 			EnumWindows(find_wnd, (LPARAM)&w);
 			if (!w)
-				continue;   // ainda sem janela: tenta de novo ate o prazo de 8 s
+				continue;   // still no window: retry until the 8 s deadline
 			old_wndproc = (WNDPROC)SetWindowLongPtrW(w, GWLP_WNDPROC, (LONG_PTR)ar_wndproc);
 			game_wnd = w;
 			rlog("janela do jogo %p, WndProc substituido", game_wnd);
@@ -671,28 +671,28 @@ static DWORD WINAPI worker_thread(LPVOID arg)
 	return 0;
 }
 
-// ---- efeitos de script proprios (docs/re/notas_efeitos.md) ----
-// Cada efeito declarado no plugin/plugin.txt de um mod ativo vira um efeito de escopo exercito com um valor
-// (`nome = 123`), ou de qualquer escopo (`nome livre`). O objeto e um add_loot verdadeiro do jogo com a funcao de
-// executar trocada; a execucao e repassada ao nucleo (on_effect), que a entrega ao plugin. O carregador registra
-// tambem `ck3_custom_ping` (qualquer escopo), do proprio nucleo (provas e testes).
-#define RVA_INIT_SLOT        0x40024f8   // tabela de inicializadores: entrada do registro do add_loot
+// ---- custom script effects (docs/dll/re/notas_efeitos.md) ----
+// Each effect declared in the plugin/plugin.txt of an active mod becomes an army-scope effect with a value
+// (`nome = 123`), or an any-scope effect (`nome livre`). The object is a real game add_loot with its execute function
+// swapped; execution is forwarded to the core (on_effect), which hands it to the plugin. The loader also registers
+// `ck3_custom_ping` (any scope), belonging to the core itself (proofs and tests).
+#define RVA_INIT_SLOT        0x40024f8   // initializer table: add_loot registration entry
 #define RVA_INIT_ADD_LOOT    0x5c4300
-#define RVA_FN_NAMES         0x3b587c0   // () -> registro de nomes
-#define RVA_FN_NAME_ID       0x3b58280   // (registro, &texto) -> numero do nome
+#define RVA_FN_NAMES         0x3b587c0   // () -> name registry
+#define RVA_FN_NAME_ID       0x3b58280   // (registry, &text) -> name number
 #define RVA_EFFECT_DB        0x570f6f0
 #define RVA_FN_EFFECT_DB     0x337e050
-#define RVA_FN_EFFECT_REG    0x337e6b0   // (banco, numero, entrada)
-#define RVA_FN_ADD_LOOT_NEW  0x2e81070   // fabrica do add_loot: (entrada) -> objeto
+#define RVA_FN_EFFECT_REG    0x337e6b0   // (database, number, entry)
+#define RVA_FN_ADD_LOOT_NEW  0x2e81070   // add_loot factory: (entry) -> object
 #define RVA_VT_ADD_LOOT      0x443cad8
 #define RVA_FN_ADD_LOOT_EXEC 0x2e80510
-#define RVA_FN_NO_DESC       0x7e6590    // descricao vazia (a mesma dos efeitos de debug)
-#define RVA_FN_ANY_SCOPE     0x7e9230    // tipo de escopo 0 (a mesma dos efeitos de debug): aceita qualquer escopo
-#define RVA_FN_VAR_POOL      0x3b970f0   // () -> registro de nomes de variavel
-#define RVA_FN_VAR_NAME      0x3b96da0   // (registro, &numero, &texto)
-#define RVA_FN_VAR_KNOWN     0x3382560   // (banco+0xd8, numero): marca a variavel como "gravada por algum script"
+#define RVA_FN_NO_DESC       0x7e6590    // empty description (the same as the debug effects)
+#define RVA_FN_ANY_SCOPE     0x7e9230    // scope type 0 (the same as the debug effects): accepts any scope
+#define RVA_FN_VAR_POOL      0x3b970f0   // () -> variable name registry
+#define RVA_FN_VAR_NAME      0x3b96da0   // (registry, &number, &text)
+#define RVA_FN_VAR_KNOWN     0x3382560   // (database+0xd8, number): marks the variable as "written by some script"
 #define FX_SLOT_SCOPE        5
-#define RVA_FN_VALUE         0x9698b0    // (objeto+0x60, &saida, contexto, [contexto+0x28], objeto+0x10)
+#define RVA_FN_VALUE         0x9698b0    // (object+0x60, &out, context, [context+0x28], object+0x10)
 #define FX_SLOTS             24
 #define FX_SLOT_EXEC         22
 #define FX_SLOT_DESC         23
@@ -709,13 +709,13 @@ static char fx_names[FX_MAX][48];
 static fx_entry fx_entries[FX_MAX];
 static int fx_count;
 static void *fx_entry_vt[2];
-static void *fx_vt[1 + FX_SLOTS];       // escopo exercito; [0] = ponteiro de RTTI, como na tabela original
-static void *fx_vt_any[1 + FX_SLOTS];   // qualquer escopo (linha `nome livre` no arquivo)
-static char fx_vars[64][48];            // nomes de variavel de resposta (linha `var nome`)
+static void *fx_vt[1 + FX_SLOTS];       // army scope; [0] = RTTI pointer, as in the original table
+static void *fx_vt_any[1 + FX_SLOTS];   // any scope (line `nome livre` in the file)
+static char fx_vars[64][48];            // response variable names (line `var nome`)
 static int fx_var_count;
 static CRITICAL_SECTION fx_lock;
 
-static void *fx_entry_dtor(fx_entry *e, int flags) { return e; }   // memoria nossa: nada a liberar
+static void *fx_entry_dtor(fx_entry *e, int flags) { return e; }   // our own memory: nothing to free
 
 static uint8_t *fx_factory(fx_entry *e)
 {
@@ -795,7 +795,7 @@ static __attribute__((noinline)) void fx_register(void)
 	fx_guard_thread = 0;
 }
 
-// entra no lugar do inicializador do add_loot: roda na inicializacao do jogo, antes da leitura dos scripts
+// replaces the add_loot initializer: runs at game startup, before the scripts are read
 static void fx_init_thunk(void)
 {
 	((void (*)(void))(base + RVA_INIT_ADD_LOOT))();
@@ -810,8 +810,8 @@ static void fx_install(void)
 		rlog("efeitos: tabelas nao batem com a versao 1.19.0.6, nada registrado");
 		return;
 	}
-	// manifestos: `nome`, `api` e `fonte` sao do nucleo; `var nome` = variavel de resposta; qualquer outra linha =
-	// `efeito [livre]`. Nome repetido em outro plugin: recusado com aviso
+	// manifests: `nome`, `api` and `fonte` belong to the core; `var nome` = response variable; any other line =
+	// `efeito [livre]`. Name repeated in another plugin: refused with a warning
 	strcpy(fx_names[fx_count], "ck3_custom_ping");
 	fx_entries[fx_count++].pad = 1;
 	static char dirs[16][MAX_PATH];
@@ -877,33 +877,33 @@ static void fx_install(void)
 	rlog("efeitos: %d nome(s) e %d variavel(is) a registrar na inicializacao do jogo", fx_count, fx_var_count);
 }
 
-// ---- configuracoes dos mods (docs/arquitetura_dll.md, secoes 11 e 11.6b; docs/re_notas.md, secao C1) ----
-// Cada mod ativo (dlc_load.json) com plugin/config.txt declara opcoes. O carregador:
-// - registra as opcoes no grupo "mods" logo depois da criacao do gerenciador (antes de o jogo ler o pdx_settings.txt);
-// - depois de a janela de configuracoes montar as abas (settings_layout.txt do jogo), acrescenta a pagina "Mods",
-//   gerada a partir dos config.txt, lida da memoria;
-// - em -debug_mode, refaz as opcoes e a pagina quando um config.txt muda (ou pelo pedido "config recarregar");
-// - guarda copia da secao "mods" do pdx_settings.txt e a devolve se o jogo a apagou (aberto sem a DLL).
-// Tipos: liga, inteiro e real (prova C4); lista e texto ainda nao.
-#define RVA_FN_SETTINGS_CREATE 0x3b44b40   // cria o gerenciador e grava o global
+// ---- mod settings (docs/dll/arquitetura_dll.md, sections 11 and 11.6b; docs/dll/re_notas.md, section C1) ----
+// Each active mod (dlc_load.json) with plugin/config.txt declares options. The loader:
+// - registers the options in the "mods" group right after the manager is created (before the game reads pdx_settings.txt);
+// - after the settings window builds its tabs (the game's settings_layout.txt), appends the "Mods" page,
+//   generated from the config.txt files, read from memory;
+// - in -debug_mode, rebuilds the options and the page when a config.txt changes (or on the "config recarregar" request);
+// - keeps a copy of the "mods" section of pdx_settings.txt and restores it if the game deleted it (opened without the DLL).
+// Types: liga, inteiro and real (proof C4); lista and texto not yet.
+#define RVA_FN_SETTINGS_CREATE 0x3b44b40   // creates the manager and stores the global
 #define RVA_SETTINGS_MANAGER   0x5710d58
-#define RVA_FN_SETTING_REG     0x3b44cf0   // (gerenciador, &grupo, opcao, n)
-#define RVA_FN_BOOL_SETTING    0x3b46730   // (obj 0xF8, &nome, &chave_texto, padrao, 0)
-#define RVA_FN_BOOL_SET        0x3b46990   // (opcao, valor, 1): o mesmo do clique na caixa
-#define RVA_FN_NEW             0x3e25d74   // operator new do jogo
+#define RVA_FN_SETTING_REG     0x3b44cf0   // (manager, &group, option, n)
+#define RVA_FN_BOOL_SETTING    0x3b46730   // (obj 0xF8, &name, &text_key, default, 0)
+#define RVA_FN_BOOL_SET        0x3b46990   // (option, value, 1): the same as clicking the checkbox
+#define RVA_FN_NEW             0x3e25d74   // the game's operator new
 #define BOOL_SETTING_SIZE      0xF8
-#define RVA_FN_WIN_BUILD       0x32d7700   // CJominiSettingsWindow: limpa as abas e as monta do settings_layout.txt
+#define RVA_FN_WIN_BUILD       0x32d7700   // CJominiSettingsWindow: clears the tabs and builds them from settings_layout.txt
 #define RVA_VT_MEMORY_FILE     0x4559758
 #define RVA_ALLOC_CHAR         0x4fea420   // CPdxTypedNewDeleteAllocator<char>
-#define RVA_FN_BUF_COPY        0x3bb5200   // (buffer, texto, tamanho)
-#define RVA_FN_LEXER_STREAM    0x3b58cf0   // CLexer(lexer, &arquivo, 0)
+#define RVA_FN_BUF_COPY        0x3bb5200   // (buffer, text, size)
+#define RVA_FN_LEXER_STREAM    0x3b58cf0   // CLexer(lexer, &file, 0)
 #define RVA_VT_TEXT_LEXER      0x4556c20
 #define RVA_FN_LEXER_DTOR      0x3b58dc0
-#define RVA_FN_READER          0x3b8e670   // (leitor, &lexer)
+#define RVA_FN_READER          0x3b8e670   // (reader, &lexer)
 #define RVA_FN_READER_DTOR     0x3b8e850
-#define RVA_FN_BIND_CAT        0x32d5230   // (secao): liga as opcoes da secao
-#define WIN_PAGES              0xd8        // vetor de paginas: ponteiro, +0x08 capacidade, +0x0c quantidade
-#define WIN_LAYOUT             0xc8        // sub-objeto que le o layout (vtable[3]); acrescenta paginas
+#define RVA_FN_BIND_CAT        0x32d5230   // (section): binds the section's options
+#define WIN_PAGES              0xd8        // page vector: pointer, +0x08 capacity, +0x0c count
+#define WIN_LAYOUT             0xc8        // sub-object that reads the layout (vtable[3]); appends pages
 
 static const uint8_t SETTINGS_PROLOGUE[9] = {
 	0x40, 0x53,                                // push rbx
@@ -933,10 +933,10 @@ static cfg_mod cfg_mods[CFG_MODS];
 static int cfg_nmods;
 static cfg_opt cfg_opts[CFG_OPTS];
 static int cfg_nopts;
-static char user_dir[MAX_PATH];        // ...\Documents\Paradox Interactive\Crusader Kings III\ (com barra)
+static char user_dir[MAX_PATH];        // ...\Documents\Paradox Interactive\Crusader Kings III\ (with trailing slash)
 static char settings_path[MAX_PATH + 32], backup_path[MAX_PATH + 64];
-static uint8_t *cfg_win;               // janela de configuracoes (guardada no desvio da montagem)
-static uint8_t *cfg_pages[8];          // paginas que acrescentamos a janela
+static uint8_t *cfg_win;               // settings window (stored by the build hook)
+static uint8_t *cfg_pages[8];          // pages we appended to the window
 static int cfg_npages, cfg_defaults_done;
 
 static char *read_file(const char *path, size_t *len_out)
@@ -992,7 +992,7 @@ static cfg_opt *cfg_add(int mi, const char *name, const char *key, const char *c
 	return o;
 }
 
-// plugin/config.txt (docs/arquitetura_dll.md, 11.3): mod, titulo, grupo, liga, inteiro, real
+// plugin/config.txt (docs/dll/arquitetura_dll.md, 11.3): mod, titulo, grupo, liga, inteiro, real
 static void cfg_parse(int mi)
 {
 	cfg_mod *m = &cfg_mods[mi];
@@ -1021,8 +1021,8 @@ static void cfg_parse(int mi)
 			snprintf(cat, sizeof cat, "%s", w[2]);
 		else if ((!strcmp(w[0], "liga") && k >= 2) || (!strcmp(w[0], "inteiro") && k >= 5) ||
 		         (!strcmp(w[0], "real") && k >= 6)) {
-			// liga <chave> <padrao> | inteiro <chave> <padrao> <min> <max> [passo] [formato]
-			// | real <chave> <padrao> <min> <max> <passo> [formato]
+			// liga <key> <default> | inteiro <key> <default> <min> <max> [step] [format]
+			// | real <key> <default> <min> <max> <step> [format]
 			int type = w[0][0] == 'l' ? OPT_BOOL : w[0][0] == 'i' ? OPT_INT : OPT_REAL;
 			char name[96], key[112];
 			snprintf(name, sizeof name, "%s_%s", m->name, w[1]);
@@ -1035,7 +1035,7 @@ static void cfg_parse(int mi)
 				o->step = k >= 6 ? atof(w[5]) : 1;
 				const char *fmt = k >= 7 ? w[6] : "";
 				if (type == OPT_INT && k == 6 && !isdigit((unsigned char)w[5][0]) && w[5][0] != '.') {
-					o->step = 1;   // inteiro sem passo, com formato
+					o->step = 1;   // inteiro without step, with format
 					fmt = w[5];
 				}
 				snprintf(o->fmt, sizeof o->fmt, "%s", fmt[0] ? fmt : "SETTING_VALUE_NONE");
@@ -1054,8 +1054,8 @@ static void cfg_parse(int mi)
 	rlog("config %s: %d opcao(oes) em %s", m->name, n, m->path);
 }
 
-// pastas dos mods ativos: dlc_load.json (enabled_mods) -> cada .mod -> path=. Mod sem path= (ex.: .zip com
-// archive=) fica de fora
+// active mod folders: dlc_load.json (enabled_mods) -> each .mod -> path=. A mod without path= (e.g. .zip with
+// archive=) is left out
 static int mod_dirs(char (*dirs)[MAX_PATH], int max)
 {
 	char p[MAX_PATH * 2];
@@ -1099,7 +1099,7 @@ static int mod_dirs(char (*dirs)[MAX_PATH], int max)
 	return n;
 }
 
-// mods ativos que tem plugin/config.txt
+// active mods that have plugin/config.txt
 static void cfg_discover(void)
 {
 	static char dirs[16][MAX_PATH];
@@ -1121,7 +1121,7 @@ static void cfg_discover(void)
 	}
 }
 
-// valor gravado no pdx_settings.txt (`enabled=yes/no` ou `value=<numero>`); 0 se a opcao nao esta no arquivo
+// value saved in pdx_settings.txt (`enabled=yes/no` or `value=<number>`); 0 if the option is not in the file
 static int cfg_saved(const char *text, const char *name, double *out)
 {
 	char pat[128];
@@ -1141,25 +1141,25 @@ static int cfg_saved(const char *text, const char *name, double *out)
 	return 0;
 }
 
-// barra de valor (CPdxValueSetting<int> / <float>): o jogo monta direto no codigo, sem construtora; campos tirados
-// de debug_saves (0x403ef0) e tooltip_delay (0x4045e0). docs/re_notas.md, secao C4
+// value slider (CPdxValueSetting<int> / <float>): the game builds it inline in code, with no constructor; fields taken
+// from debug_saves (0x403ef0) and tooltip_delay (0x4045e0). docs/dll/re_notas.md, section C4
 #define VALUE_SETTING_SIZE   0x128
-#define RVA_VT_INT_SETTING   0x4238228   // e +8: 0x4238218
+#define RVA_VT_INT_SETTING   0x4238228   // and +8: 0x4238218
 #define RVA_VT_INT_SETTING2  0x4238218
 #define RVA_VT_REAL_SETTING  0x428cb28
 #define RVA_VT_REAL_SETTING2 0x428cb18
-#define RVA_ALLOC_CALLBACK   0x4fea408   // alocador da lista de chamadas de mudanca (+0x28)
-#define RVA_FN_STR_ASSIGN    0x7e9530    // std::string::assign(texto, tamanho)
-#define RVA_FN_ANY_EMPTY     0x9ff600    // tipo vazio dos campos de valor
-#define RVA_FN_TYPE_INT      0x7ea910    // numero do tipo (+0xbc)
+#define RVA_ALLOC_CALLBACK   0x4fea408   // allocator of the change callback list (+0x28)
+#define RVA_FN_STR_ASSIGN    0x7e9530    // std::string::assign(text, size)
+#define RVA_FN_ANY_EMPTY     0x9ff600    // empty type of the value fields
+#define RVA_FN_TYPE_INT      0x7ea910    // type number (+0xbc)
 #define RVA_FN_TYPE_REAL     0x7ea8a0
-#define RVA_FN_INT_SET       0xa89250    // (opcao, &valor, 0)
-#define RVA_FN_REAL_SET      0xa89430    // (opcao, &valor, 0)
+#define RVA_FN_INT_SET       0xa89250    // (option, &value, 0)
+#define RVA_FN_REAL_SET      0xa89430    // (option, &value, 0)
 
 static void game_string(uint8_t *s, const char *text)
 {
 	memset(s, 0, 0x20);
-	*(uint64_t *)(s + 0x18) = 0xf;   // std::string vazia (SSO)
+	*(uint64_t *)(s + 0x18) = 0xf;   // empty std::string (SSO)
 	((void (*)(void *, const char *, size_t))(base + RVA_FN_STR_ASSIGN))(s, text, strlen(text));
 }
 
@@ -1205,7 +1205,7 @@ static void cfg_set_value(cfg_opt *o, double v)
 	}
 }
 
-// registra as opcoes que ainda nao tem objeto no jogo; devolve quantas
+// registers the options that do not have a game object yet; returns how many
 static int cfg_register_pending(int late)
 {
 	void *mgr = *(void **)(base + RVA_SETTINGS_MANAGER);
@@ -1231,8 +1231,8 @@ static int cfg_register_pending(int late)
 			break;
 		o->obj = obj;
 		if (o->type != OPT_BOOL)
-			cfg_set_value(o, o->def);   // como o jogo faz logo depois de montar a opcao
-		InterlockedIncrement((LONG *)(obj + 0x10));   // referencia nossa, como o global das opcoes do jogo
+			cfg_set_value(o, o->def);   // as the game does right after building the option
+		InterlockedIncrement((LONG *)(obj + 0x10));   // our own reference, like the game's option globals
 		((void (*)(void *, void *, void *, int))(base + RVA_FN_SETTING_REG))(mgr, &g, obj, 0);
 		o->late = late;
 		n++;
@@ -1243,8 +1243,8 @@ static int cfg_register_pending(int late)
 	return n;
 }
 
-// aplica o valor pelo caminho do jogo: opcao sem entrada no pdx_settings.txt recebe o padrao do config.txt;
-// opcao registrada com o jogo aberto (depois da leitura do arquivo) recebe o valor gravado
+// applies the value through the game's path: an option without an entry in pdx_settings.txt gets the config.txt default;
+// an option registered with the game open (after the file was read) gets the saved value
 static void cfg_apply_values(int only_late)
 {
 	char *text = read_file(settings_path, NULL);
@@ -1255,7 +1255,7 @@ static void cfg_apply_values(int only_late)
 		double saved = 0;
 		int found = cfg_saved(text, o->name, &saved);
 		if (found && !o->late)
-			continue;   // o jogo ja leu do arquivo
+			continue;   // the game already read it from the file
 		double v = found ? saved : o->def;
 		cfg_set_value(o, v);
 		o->late = 0;
@@ -1264,7 +1264,7 @@ static void cfg_apply_values(int only_late)
 	free(text);
 }
 
-// pagina "Mods": uma secao por mod (ou por grupo do config.txt), so com as opcoes presentes no config.txt
+// "Mods" page: one section per mod (or per config.txt group), only with the options present in config.txt
 static int cfg_layout(char *out, size_t cap)
 {
 	size_t n = (size_t)snprintf(out, cap, "page = {\n\tname = \"SETTINGS_PAGE_MODS\"\n");
@@ -1291,7 +1291,7 @@ static int cfg_layout(char *out, size_t cap)
 	return any && n < cap ? (int)n : 0;
 }
 
-// tira as paginas que acrescentamos e acrescenta a pagina gerada (texto lido da memoria, CMemoryFile)
+// removes the pages we appended and appends the generated page (text read from memory, CMemoryFile)
 static void cfg_inject(uint8_t *win)
 {
 	int count = *(int32_t *)(win + WIN_PAGES + 0xc);
@@ -1303,7 +1303,7 @@ static void cfg_inject(uint8_t *win)
 				count--;
 				break;
 			}
-	*(int32_t *)(win + WIN_PAGES + 0xc) = count;   // a memoria das paginas tiradas nao e liberada
+	*(int32_t *)(win + WIN_PAGES + 0xc) = count;   // the memory of the removed pages is not freed
 	cfg_npages = 0;
 
 	static char text[32768];
@@ -1318,7 +1318,7 @@ static void cfg_inject(uint8_t *win)
 	*(void **)mem = base + RVA_VT_MEMORY_FILE;
 	*(int32_t *)(mem + 0x08) = 1;
 	*(int64_t *)(mem + 0x10) = 1;
-	*(int64_t *)(mem + 0x30) = 0xf;   // std::string vazia em +0x18
+	*(int64_t *)(mem + 0x30) = 0xf;   // empty std::string at +0x18
 	*(void **)(mem + 0x38) = buf;
 	*(int32_t *)(mem + 0x50) = -1;
 	((void (*)(void *, void *, int))(base + RVA_FN_LEXER_STREAM))(lexer, mem, 0);
@@ -1369,7 +1369,7 @@ static uint64_t win_build_hook(void *win)
 	if (__builtin_setjmp(fx_guard_buf) == 0) {
 		fx_guard_thread = GetCurrentThreadId();
 		cfg_win = win;
-		cfg_npages = 0;   // a montagem limpou as abas
+		cfg_npages = 0;   // the build cleared the tabs
 		if (!cfg_defaults_done) {
 			cfg_defaults_done = 1;
 			rlog("configuracoes: janela %p montada (trava do gerenciador = %d)", win,
@@ -1386,7 +1386,7 @@ static uint64_t win_build_hook(void *win)
 	return r;
 }
 
-// pedido "config recarregar" (thread principal): rele os config.txt, registra opcoes novas e refaz a pagina
+// "config recarregar" request (main thread): rereads the config.txt files, registers new options and rebuilds the page
 static __attribute__((noinline)) void cfg_reload(void)
 {
 	if (__builtin_setjmp(guard_buf) != 0) {
@@ -1411,7 +1411,7 @@ static __attribute__((noinline)) void cfg_reload(void)
 	guard_thread = 0;
 }
 
-// copia da secao "mods" do pdx_settings.txt (o jogo aberto sem a DLL apaga a secao)
+// copy of the "mods" section of pdx_settings.txt (the game opened without the DLL deletes the section)
 static void cfg_backup(void)
 {
 	char *t = read_file(settings_path, NULL);
@@ -1445,7 +1445,7 @@ static void cfg_restore(void)
 	free(t);
 }
 
-// vigia (thread de trabalho, a cada ~1 s): copia do pdx_settings.txt e config.txt alterado (so em -debug_mode)
+// watcher (worker thread, every ~1 s): copy of pdx_settings.txt and changed config.txt (only in -debug_mode)
 static FILETIME settings_time;
 static void cfg_watch(void)
 {
@@ -1467,7 +1467,7 @@ static void cfg_watch(void)
 		}
 }
 
-// memoria executavel a menos de 2 GB do jogo, para o salto curto (E9) do desvio
+// executable memory within 2 GB of the game, for the hook's near jump (E9)
 static uint8_t *alloc_near(uint8_t *target)
 {
 	for (uintptr_t a = ((uintptr_t)target & ~(uintptr_t)0xFFFF) - 0x10000; a > (uintptr_t)target - 0x70000000;
@@ -1479,8 +1479,8 @@ static uint8_t *alloc_near(uint8_t *target)
 	return NULL;
 }
 
-// desvio no inicio de uma funcao do jogo: os `len` primeiros bytes (instrucoes inteiras, sem endereco relativo)
-// vao para o trampolim, que *orig passa a apontar
+// hook at the start of a game function: the first `len` bytes (whole instructions, no relative addressing)
+// go to the trampoline, which *orig then points to
 static int hook_install(uint32_t rva, const uint8_t *prologue, int len, void *hook, void **orig, const char *what)
 {
 	uint8_t *target = base + rva;
@@ -1493,7 +1493,7 @@ static int hook_install(uint32_t rva, const uint8_t *prologue, int len, void *ho
 		rlog("%s: sem memoria perto do jogo, desvio nao instalado", what);
 		return 0;
 	}
-	// +0: salto longo para o desvio; +32: trampolim (prologo original + salto de volta)
+	// +0: far jump to the hook; +32: trampoline (original prologue + jump back)
 	page[0] = 0xFF; page[1] = 0x25; memset(page + 2, 0, 4);
 	*(void **)(page + 6) = hook;
 	uint8_t *tramp = page + 32;
@@ -1547,8 +1547,8 @@ static void cfg_install(void)
 	             (void **)&win_build_orig, "configuracoes (janela)");
 }
 
-// Jogo sem graficos: roda os comandos de ck3_custom\sem_graficos_abrir.txt (um por linha, `pasta|comando`; # comenta),
-// por exemplo o painel de um mod (docs/testes/painel_qt.py do Auto Raid). O carregador nao sabe o que e: so abre.
+// Game without graphics: runs the commands in ck3_custom\sem_graficos_abrir.txt (one per line, `folder|command`; # comments),
+// for example a mod's panel (Auto Raid's auto_raid docs/testes/painel_qt.py). The loader does not know what it is: it just opens it.
 static void run_on_nographics(void)
 {
 	char path[MAX_PATH + 64];
@@ -1602,7 +1602,7 @@ static void install(void)
 		return;
 	}
 
-	// trampolim: prologo original + salto de volta
+	// trampoline: original prologue + jump back
 	uint8_t *tramp = VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 	if (!tramp) {
 		rlog("VirtualAlloc falhou: inativo");
@@ -1650,7 +1650,7 @@ static void install(void)
 	g_install();
 	if (diag)
 		diag_init();
-	if (GetEnvironmentVariableA("AR_BOMBA", ev, sizeof ev))   // forca o gancho da bomba (nome da funcao)
+	if (GetEnvironmentVariableA("AR_BOMBA", ev, sizeof ev))   // forces the pump hook (function name)
 		for (int i = 0; i < G_N; i++)
 			if (!strcmp(ev, g_imp[i].fn) && g_orig[i]) {
 				pump_hook = i;
@@ -1675,8 +1675,8 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
 		char *slash = strrchr(dll_dir, '\\');
 		if (slash)
 			slash[1] = 0;
-		// AR_INSTANCIA=<nome>: varios jogos ao mesmo tempo, cada um com o seu log e o seu arquivo de pedidos
-		// (docs/plano_sem_graficos.md, fase 4)
+		// AR_INSTANCIA=<name>: several games at the same time, each with its own log and its own request file
+		// (docs/dll/plano_sem_graficos.md, phase 4)
 		char inst_name[32] = "", suf[40] = "";
 		if (GetEnvironmentVariableA("AR_INSTANCIA", inst_name, sizeof inst_name) && inst_name[0])
 			snprintf(suf, sizeof suf, "_%s", inst_name);

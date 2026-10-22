@@ -1,5 +1,5 @@
-# Gera exports.h e proxy.def a partir da DLL do sistema que sera repassada.
-# Uso: python gen_exports.py winmm
+# Generates exports.h and proxy.def from the system DLL that will be forwarded to.
+# Usage: python gen_exports.py winmm
 import subprocess,sys,re
 name=sys.argv[1]
 out=subprocess.run(['objdump','-p',r'C:\Windows\System32\%s.dll'%name],capture_output=True,text=True).stdout

@@ -53,7 +53,7 @@ Mods > Auto Raid > "Ligado" (`auto_raid_ligado`, off by default); there is no de
 - Game without graphics (`-nographics`): there is no window; the queue is served inside `PeekMessageW` on the main
   thread (hook in ck3.exe's import table, chosen by the heartbeat every 5 s). With `-nographics` or `AR_DIAG=1` the
   loader logs heartbeats (calls per second of the hooks and samples of where the main thread is);
-  `AR_BOMBA=<funcao>` forces the hook. See docs/dll/plano_sem_graficos.md.
+  `AR_BOMBA=<function>` forces the hook. See docs/dll/plano_sem_graficos.md.
 - If a request or effect causes an access violation, the loader contains the crash and logs "FALHA CONTIDA" with the
   address, instead of bringing the game down. After a contained crash the game state may be inconsistent: do not save.
 
@@ -67,17 +67,17 @@ Mods > Auto Raid > "Ligado" (`auto_raid_ligado`, off by default); there is no de
 | `route <unidade\|last> <p1> <p2> ...` | Route through waypoints: the first replaces, the rest go into the queue |
 | `units [all]` | Lists the player's units (or all of them) |
 | `threats <unidade\|last> [dias]` | Foreign units whose path crosses our province or our route, with days until the crossing |
-| `peek <endereco \| exe+RVA \| unit:<id> \| prov:<id> \| army:<id>> [bytes]` | Shows memory (safe read) |
-| `procura <valor hex \| exe+RVA> [max]` | Addresses in the process's own memory that hold the 64-bit value (separate thread, ~80 s; one search at a time) |
-| `layout <janela hex> <arquivo>` / `layout_tirar <janela hex> <indice>` | Proof C2b: adds / removes pages of the settings window |
+| `peek <address \| exe+RVA \| unit:<id> \| prov:<id> \| army:<id>> [bytes]` | Shows memory (safe read) |
+| `procura <hex value \| exe+RVA> [max]` | Addresses in the process's own memory that hold the 64-bit value (separate thread, ~80 s; one search at a time) |
+| `layout <hex window> <file>` / `layout_tirar <hex window> <index>` | Proof C2b: adds / removes pages of the settings window |
 | `config recarregar` | Rereads the mods' `plugin/config.txt`, registers new options and rebuilds the Mods tab (loader; in `-debug_mode` it is automatic when the file changes) |
-| `cfg [nome valor]` | Lists the Mods tab options with their values; with name and value, changes the option through the interface path |
+| `cfg [name value]` | Lists the Mods tab options with their values; with name and value, changes the option through the interface path |
 | `mods` / `mods_sel <n>` | Shows the Mods tab button list / the options of mod n (-1 = list) |
 | `gravar on <nome>` / `gravar off` / `gravar` | Recording (auto_raid: docs/simulador.md, 6.1) to `ck3_custom\gravacao\<nome>.jsonl` |
 | `mapa <unidade> <raio px> <nome> [vizinhanca px]` | Graph of the provinces around the unit from the game's pathfinder (auto_raid: docs/simulador.md, 6.2), to `ck3_custom\mapa\<nome>.jsonl`; use with the game paused |
 | `tabela <unidade> <raio px> <nome> <de> <ate> [raio_dest px]` | Extraction bridge (auto_raid: docs/ia_reativa.md, 9.3): the game's exact ETA (pathfinder + travel time, with the unit's speed at the place where it is) from the origins with index [de, ate) in the radius to the provinces up to `raio_dest` px (default 400), to `ck3_custom\mapa\<nome>.bin`; in blocks of a few origins (the game stops while the block runs; `de` = 0 restarts the file) |
 | `etafrom <unidade> <de> <ate>` | Days from `de` to `ate` with the unit's speed (speed probe) |
-| `var <tipo> <id> <nome> [set <valor> [dias] \| del]` | Reads (type, value, expiry) or changes a script variable on the scope object (type 4 character, 8 province, 0x1b army) |
+| `var <type> <id> <name> [set <value> [days] \| del]` | Reads (type, value, expiry) or changes a script variable on the scope object (type 4 character, 8 province, 0x1b army) |
 | `expr <texto>` / `ctxprova <tipo> <id> <texto>` | Proofs A3 and SIM2b: the game parses the script expression; the core evaluates it on the next `ck3_custom_ping` (on the army / on the given scope, with that effect's context) |
 | `console <texto>` | Puts the text in the game console's queue, as if typed (e.g. `console effect ...`) |
 | `cmdlog on\|all\|off` | Logs every command sent by the main thread (class name and bytes); `all`: from all threads, army classes (Move, Halt, Raid, Loot, Unit, Army...) with the thread and the whole march (0x168 and the path), other classes by name only |
@@ -88,7 +88,7 @@ Mods > Auto Raid > "Ligado" (`auto_raid_ligado`, off by default); there is no de
 | `velocidade <1..5>` | Writes the game speed (field read by `state`); for windowless runs (`-nographics`) |
 | `status <canal>` | Writes `ck3_custom\status.json` (pause, speed, game date at `[game_state]+0x9c`); the loader requests it every second, outside the log (auto_raid's `docs/testes/painel.py` panel) |
 | `efeito <texto>` | Runs a script effect on the player character through the function of the `effect` console command (`0xe3e8b0`), without going through the console. Without a console (`-nographics`), `console effect ...` and `console event <id>` (becomes `trigger_event`) go through this path |
-| `busca32 <gs\|gs2\|endereco> <valor> [bytes]` | Offsets in the block that hold the 32-bit value (to find fields) |
+| `busca32 <gs\|gs2\|address> <value> [bytes]` | Offsets in the block that hold the 32-bit value (to find fields) |
 | `mudo on\|off` | Test: the core stops forwarding effects to the plugins (simulates the game without the DLL) |
 | `plugin [recompilar]` | Plugins found and whether they are loaded; `recompilar` compiles again |
 | `cmdraw <vtable> <vtable2> <flags> [campos]` | Sends a simple game command (32-bit fields starting at +0x20), for investigation |
@@ -100,7 +100,7 @@ Mods > Auto Raid > "Ligado" (`auto_raid_ligado`, off by default); there is no de
 The loader registers the effects at game startup, before the scripts are read, from the `plugin/plugin.txt` of each
 active mod, plus the core's own `ck3_custom_ping` (any scope). Manifest lines (full format in
 docs/dll/arquitetura_dll.md, section 6):
-- `nome <mod>`, `api <versao>`, `fonte <arquivo.c>`: for the core (mod name, API version, C source file).
+- `nome <mod>`, `api <version>`, `fonte <file.c>`: for the core (mod name, API version, C source file).
 - `<efeito>`: army-scope effect with a value (`auto_raid_mover = 7336`, `= var:ar_alvo`).
 - `<efeito> livre`: the same, accepted in any scope.
 - `var <nome>`: response variable written by the plugin (avoids the "used but never set" warning in error.log).

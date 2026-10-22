@@ -1,4 +1,4 @@
-// Dijkstra numa grade de 120x120 com heap binario, repetido n vezes (parecido com o custo de um pathfinder)
+// Dijkstra on a 120x120 grid with a binary heap, repeated n times (similar to the cost of a pathfinder)
 #define BW 120
 #define BN (BW * BW)
 static int bench_dist[BN], bench_heap[BN * 4], bench_hd[BN * 4];

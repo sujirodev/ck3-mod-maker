@@ -1,4 +1,4 @@
-# Fase B, B1/B2: registro e anatomia de efeitos (somente leitura)
+# Phase B, B1/B2: effect registry and anatomy (read-only)
 from relib import *
 def vts(cls,nf=24):
     out=[]

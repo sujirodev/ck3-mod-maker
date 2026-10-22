@@ -40,7 +40,8 @@ Before proposing a C plugin or the Mods tab:
 
 The DLL itself speaks Portuguese and that stays: its request names (`carregar`, `salvar`, `velocidade`, `efeito`...),
 log lines (`state: PAUSADO`, `FALHA CONTIDA`...) and the manifest/config keywords (`nome`, `fonte`, `livre`, `liga`,
-`inteiro`...) are parsed by ck3ctl, by Auto Raid and by the DLL. The C sources keep Portuguese comments for now.
+`inteiro`...) are parsed by ck3ctl, by Auto Raid and by the DLL. Comments in the C sources are English; leave those
+string literals as they are.
 
 ## Mods are separate repositories
 Each mod is its own git repo, by default straight in `Documents\Paradox Interactive\Crusader Kings III\mod\<name>`

@@ -1,6 +1,6 @@
-﻿# {{title}}: efeitos de script do mod. Prefixo {{prefix}}_ em tudo que o mod cria.
-# Testar no jogo: python -m ck3ctl effect "{{prefix}}_exemplo = yes"
+﻿# {{title}}: the mod's scripted effects. Prefix {{prefix}}_ on everything the mod creates.
+# Test in game: python -m ck3ctl effect "{{prefix}}_example = yes"
 
-{{prefix}}_exemplo = {
+{{prefix}}_example = {
 	add_gold = 1
 }

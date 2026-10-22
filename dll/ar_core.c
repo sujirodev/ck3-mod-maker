@@ -1,7 +1,7 @@
-// ck3_custom - nucleo generico (recarregavel com o jogo aberto em -debug_mode; docs/arquitetura_dll.md).
-// Carregado pelo carregador (winmm.dll) a partir de ck3_custom_core.dll. Recebe pedidos de ck3_custom_cmd.txt
-// na thread principal do jogo, grava as respostas em ck3_custom_dll.log e compila os plugins dos mods (TinyCC).
-// Enderecos (RVA, ck3.exe 1.19.0.6) em docs/re_notas.md e docs/re/notas_unidades.md.
+// ck3_custom - generic core (reloadable with the game open in -debug_mode; docs/dll/arquitetura_dll.md).
+// Loaded by the loader (winmm.dll) from ck3_custom_core.dll. Receives requests from ck3_custom_cmd.txt
+// on the game's main thread, writes the replies to ck3_custom_dll.log and compiles the mods' plugins (TinyCC).
+// Addresses (RVA, ck3.exe 1.19.0.6) in docs/dll/re_notas.md and docs/dll/re/notas_unidades.md.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdio.h>
@@ -15,19 +15,19 @@
 #include "ar_host.h"
 #include "ck3_api.h"
 
-// comandos
+// commands
 #define RVA_VT_MOVE_UNIT   0x432bef0
 #define RVA_VT_MOVE_UNIT2  0x432bf88
-#define RVA_PATH_CTOR      0xc7ba80    // construtor da lista de caminho (0x128 bytes; custo total em +0x128)
+#define RVA_PATH_CTOR      0xc7ba80    // path list constructor (0x128 bytes; total cost at +0x128)
 #define MOVE_UNIT_SIZE     0x168
-// tabelas
+// tables
 #define RVA_UNIT_TABLE     0x570cbe8
 #define RVA_ARMY_TABLE     0x570c6b0
 #define RVA_CHAR_TABLE     0x570c0b0
-#define RVA_GAME_STATE     0x570dfe8   // [[x]+0xa0]: provincias em +0x140, quantidade em +0x14c
+#define RVA_GAME_STATE     0x570dfe8   // [[x]+0xa0]: provinces at +0x140, count at +0x14c
 #define RVA_NOW            0x570edd8
 #define RVA_PLAYER_CHAR_ID 0x4fe7ee0
-// unidade
+// unit
 #define UNIT_ID            0x10
 #define UNIT_LOCATION      0x20
 #define UNIT_PATH          0x38
@@ -35,45 +35,45 @@
 #define UNIT_OWNER_CHAR    0x174
 #define UNIT_ARMY          0x178
 #define PROV_ID            0x10
-// funcoes
-#define RVA_FN_MOVING      0x2247890   // (unidade, &saida) -> ponteiro para data de chegada do passo atual
-#define RVA_FN_NEXT_PROV   0x2246d70   // (unidade) -> proxima provincia do caminho
-#define RVA_FN_PF_CTOR     0x23c3310   // (ctx, unidade)
-#define RVA_FN_PF_FIND     0x23c33f0   // (ctx, inicio*, alvo*, 2, caminho*)
-#define RVA_FN_TRAVEL_TIME 0x2247340   // (unidade, &tempo, caminho*, inicio*)
-#define RVA_FN_STEP_LEFT   0x2247600   // (unidade, &saida, 0)
-#define RVA_FN_PAN_CAMERA  0xa1c880    // (provincia*) -> centraliza a camera (Province.PanCameraTo)
-#define RVA_FN_ZOOM_CAMERA 0xa1ca20    // (provincia*) -> centraliza e aproxima (Province.ZoomCameraTo)
-#define RVA_FN_RELATION    0x224a610   // (unidade*) -> 0 minha, 1 aliada, 2 inimiga, 3 hostil, 4 neutra, 5 nenhuma
-#define RVA_FN_PREDICT     0xc6e9c0    // (&razao, vetor exercitos A, vetor exercitos B, k, k, 0, 0) previsao de combate
+// functions
+#define RVA_FN_MOVING      0x2247890   // (unit, &out) -> pointer to the arrival date of the current step
+#define RVA_FN_NEXT_PROV   0x2246d70   // (unit) -> next province of the path
+#define RVA_FN_PF_CTOR     0x23c3310   // (ctx, unit)
+#define RVA_FN_PF_FIND     0x23c33f0   // (ctx, start*, target*, 2, path*)
+#define RVA_FN_TRAVEL_TIME 0x2247340   // (unit, &time, path*, start*)
+#define RVA_FN_STEP_LEFT   0x2247600   // (unit, &out, 0)
+#define RVA_FN_PAN_CAMERA  0xa1c880    // (province*) -> centers the camera (Province.PanCameraTo)
+#define RVA_FN_ZOOM_CAMERA 0xa1ca20    // (province*) -> centers and zooms in (Province.ZoomCameraTo)
+#define RVA_FN_RELATION    0x224a610   // (unit*) -> 0 mine, 1 allied, 2 enemy, 3 hostile, 4 neutral, 5 none
+#define RVA_FN_PREDICT     0xc6e9c0    // (&ratio, army vector A, army vector B, k, k, 0, 0) combat prediction
 #define RVA_PREDICT_K      0x57BFB48
-#define RVA_PREDICT_LEVELS 0x4F42D40   // ponteiro para os limiares; quantidade em +0xC
-#define RVA_RAID_TABLE      0x57BFC38   // raids em andamento; confere [raid+8] == id
-#define ARMY_RAID           0x1e8       // id do raid em andamento, no objeto do exercito (-1 = nenhum)
-#define RVA_FN_RAID_TOTAL   0x23a1040   // (&saida, provincia*) -> progresso total exigido
-#define RVA_FN_RAID_PER_DAY 0x23a0cc0   // (&saida, exercito*, 0) -> progresso por dia
-#define RVA_FN_LOOT_CAP     0x2272a80   // (exercito*, &saida) -> capacidade de saque
-// atrito de condado (2026-10-08, docs/dossie_exercitos.md 9.22): o passo do movimento (0x1422712c0) chama a checagem e,
-// se ela der sim, a contagem; a mesma conta da caveira no caminho
-#define RVA_FN_COUNTY_ATR   0x2271120   // (personagem*, de*, para*, modo = exercito nao e de saque) -> o passo cobra?
-#define RVA_FN_COUNTY_LOSS  0x2275560   // (exercito*, NULL) -> baixas (5% x modificadores, min. 100, ate o tamanho)
+#define RVA_PREDICT_LEVELS 0x4F42D40   // pointer to the thresholds; count at +0xC
+#define RVA_RAID_TABLE      0x57BFC38   // raids in progress; checks [raid+8] == id
+#define ARMY_RAID           0x1e8       // id of the raid in progress, in the army object (-1 = none)
+#define RVA_FN_RAID_TOTAL   0x23a1040   // (&out, province*) -> total progress required
+#define RVA_FN_RAID_PER_DAY 0x23a0cc0   // (&out, army*, 0) -> progress per day
+#define RVA_FN_LOOT_CAP     0x2272a80   // (army*, &out) -> loot capacity
+// county attrition (2026-10-08, auto_raid docs/dossie_exercitos.md 9.22): the movement step (0x1422712c0) calls the check and,
+// if it says yes, the count; the same calculation as the skull on the path
+#define RVA_FN_COUNTY_ATR   0x2271120   // (character*, from*, to*, mode = army is not a raiding one) -> does the step charge?
+#define RVA_FN_COUNTY_LOSS  0x2275560   // (army*, NULL) -> casualties (5% x modifiers, min. 100, up to the size)
 #define ARMY_IS_RAID        0x1d4
-#define ARMY_LOOTER_STANCE  0x1d5       // modo "saquear ao parar" (byte)
+#define ARMY_LOOTER_STANCE  0x1d5       // "raid when stopped" mode (byte)
 #define RVA_VT_TOGGLE_LOOT   0x432c750
 #define RVA_VT_TOGGLE_LOOT2  0x432c720
 #define ARMY_LOOT           0x1e0
-#define RVA_FN_CAN_RAID     0x293db30   // (exercito*, provincia*, texto ou NULL) -> pode saquear este local?
-#define RVA_FN_PROV_LOOT    0x291dc90   // (&saida, provincia*, NULL, NULL) -> saque disponivel no local
-#define RVA_APP              0x570F738   // [x]+0x20: byte "pausado pelo jogador"
-#define RVA_FN_EVENT_PAUSE   0x2707280   // ([[estado]+0xa0]+0x2f4c0, 0) -> pausado por evento/mensagem?
-#define RVA_FN_OTHER_PAUSE   0x346b8f0   // ([app]) -> outra pausa
+#define RVA_FN_CAN_RAID     0x293db30   // (army*, province*, text or NULL) -> can it raid this location?
+#define RVA_FN_PROV_LOOT    0x291dc90   // (&out, province*, NULL, NULL) -> loot available at the location
+#define RVA_APP              0x570F738   // [x]+0x20: byte "paused by the player"
+#define RVA_FN_EVENT_PAUSE   0x2707280   // ([[state]+0xa0]+0x2f4c0, 0) -> paused by event/message?
+#define RVA_FN_OTHER_PAUSE   0x346b8f0   // ([app]) -> other pause
 #define FIXED_ONE          100000
 
 static const ar_host *H;
 static uint8_t *B;
 #define LOG H->log
 
-// ---- leitura segura ----
+// ---- safe read ----
 static int rd(const void *addr, void *out, size_t n)
 {
 	SIZE_T got = 0;
@@ -83,7 +83,7 @@ static uint8_t *rdp(const void *addr) { uint8_t *v = NULL; rd(addr, &v, 8); retu
 static uint32_t rd32(const void *addr) { uint32_t v = 0; rd(addr, &v, 4); return v; }
 static int64_t rd64(const void *addr) { int64_t v = 0; rd(addr, &v, 8); return v; }
 
-// ---- tabelas ----
+// ---- tables ----
 static uint8_t *table_get(uint32_t rva, uint32_t id, uint32_t id_off)
 {
 	uint8_t *tab = rdp(B + rva);
@@ -109,8 +109,8 @@ static uint8_t *table_at(uint32_t rva, uint32_t idx)
 }
 static uint8_t *unit_by_id(uint32_t id) { return table_get(RVA_UNIT_TABLE, id, UNIT_ID); }
 
-// tabela de provincias, relida no inicio de cada efeito e de cada pedido (muda so ao carregar outra partida): cada
-// leitura segura e uma chamada ao sistema, e os lacos sobre todas as provincias pesam no pulso
+// province table, re-read at the start of each effect and each request (only changes when another game is loaded): each
+// safe read is a system call, and the loops over all provinces weigh on the tick
 static uint8_t *pv_arr;
 static uint32_t pv_n;
 static void prov_cache(void)
@@ -129,7 +129,7 @@ static uint8_t *province_by_id(uint32_t id)
 	return rdp(pv_arr + (size_t)id * 8);
 }
 static uint32_t prov_id(uint8_t *prov) { return prov ? rd32(prov + PROV_ID) : 0; }
-// chave de texto da provincia (ex.: b_nome): std::string em [definicao+0x28]
+// province text key (e.g. b_name): std::string at [definition+0x28]
 static const char *prov_key(uint8_t *prov, char *buf, size_t n)
 {
 	uint8_t *def = prov ? rdp(prov + 8) : NULL;
@@ -149,10 +149,10 @@ static const char *prov_key(uint8_t *prov, char *buf, size_t n)
 static int prov_is_sea(uint8_t *prov);
 static uint32_t player_char(void) { return rd32(B + RVA_PLAYER_CHAR_ID); }
 
-// ---- gravacao (docs/simulador.md, SIM1) ----
-// `gravar on <nome>` grava em <binaries>\ck3\gravacao\<nome>.jsonl, uma linha JSON por acontecimento: efeito
-// chamado ("ef") e variaveis respondidas ("r"), primitivas do jogo com argumentos e resultado ("eta", "etaf", "saq",
-// "prev", "alvo", "levas"), estado do script por exercito ("exe") e do jogador por pulso ("jog").
+// ---- recording (auto_raid docs/simulador.md, SIM1) ----
+// `gravar on <nome>` writes to <binaries>\ck3\gravacao\<nome>.jsonl, one JSON line per event: effect
+// called ("ef") and variables answered ("r"), game primitives with arguments and result ("eta", "etaf", "saq",
+// "prev", "alvo", "levas"), script state per army ("exe") and of the player per tick ("jog").
 static FILE *rec_file;
 static CRITICAL_SECTION rec_lock;
 static volatile LONG rec_lock_ok;
@@ -184,7 +184,7 @@ static const char *relation_name(int r)
 	return r >= 0 && r <= 5 ? names[r] : "?";
 }
 
-// caminho em curso da unidade: devolve a quantidade e preenche ate max ids de provincia
+// unit's current path: returns the count and fills up to max province ids
 static int unit_path(uint8_t *unit, uint32_t *out, int max)
 {
 	int n = (int)rd32(unit + UNIT_PATH_COUNT);
@@ -196,17 +196,17 @@ static int unit_path(uint8_t *unit, uint32_t *out, int max)
 	return n;
 }
 
-// ---- registro dos comandos do jogador ----
+// ---- log of the player's commands ----
 static volatile LONG last_player_unit = -1;
-static volatile LONG cmdlog;        // 1 = grava todo comando enviado pela thread principal; 2 = de todas as threads,
-                                    // so classes de exercito (2026-10-06: a marcha da IA e do clique nao sai da principal)
+static volatile LONG cmdlog;        // 1 = logs every command sent by the main thread; 2 = from all threads,
+                                    // army classes only (2026-10-06: the AI's march and the click march do not come from the main thread)
 static CRITICAL_SECTION cmdlog_lock;
 static volatile LONG cmdlog_lock_ok;
 static volatile LONG sending;
 
 static const char *class_name(void *obj, char *buf, size_t n)
 {
-	// RTTI: vtable[-1] -> localizador -> descritor de tipo (RVA em +0xC) -> nome em +0x10
+	// RTTI: vtable[-1] -> locator -> type descriptor (RVA at +0xC) -> name at +0x10
 	uint8_t *vt = rdp(obj);
 	uint8_t *col = rdp(vt - 8);
 	uint32_t td = rd32(col + 0xC);
@@ -233,8 +233,8 @@ static void hexdump(const char *title, const uint8_t *p, int n)
 	}
 }
 
-// Sem graficos o jogo despausa sozinho alguns segundos depois da carga (sem a tela do "Jogar"). ng_segura = 1 da
-// carga ate o primeiro `pause 0` pedido: o status (a cada 250 ms) pausa de novo e os comandos sao registrados
+// Without graphics the game unpauses by itself a few seconds after loading (no "Play" screen). ng_segura = 1 from
+// loading until the first requested `pause 0`: the status (every 250 ms) pauses again and the commands are logged
 static int ng_segura = -1, ng_cmds;
 
 static void on_post(void *cmd, int flags, uint32_t thread)
@@ -247,7 +247,7 @@ static void on_post(void *cmd, int flags, uint32_t thread)
 		    flags, thread, rd32(c + 0x20), rd32(c + 0x24));
 	}
 	if (!c || thread != H->main_thread)
-		return;   // so o que sai da thread principal (jogador e a propria DLL)
+		return;   // only what comes from the main thread (the player and the DLL itself)
 	if (rdp(c) == B + RVA_VT_MOVE_UNIT) {
 		uint32_t *f = (uint32_t *)(c + 0x20);
 		if (!sending && f[0] == 1)
@@ -258,10 +258,10 @@ static void on_post(void *cmd, int flags, uint32_t thread)
 	}
 }
 
-// ---- gancho na funcao interna de envio (exe+0x341d8e0), por onde passam TODOS os comandos ----
-// A pagina do gancho e permanente (sobrevive a recarga do nucleo); o endereco fica na variavel de ambiente
-// AR_HOOK2. O nucleo so troca o ponteiro do tratador.
-#define RVA_POST_INNER 0x341d8e0   // (despachante, unique_ptr<comando>*, flags)
+// ---- hook on the internal send function (exe+0x341d8e0), through which ALL commands pass ----
+// The hook page is permanent (survives a core reload); its address is kept in the environment variable
+// AR_HOOK2. The core only swaps the handler pointer.
+#define RVA_POST_INNER 0x341d8e0   // (dispatcher, unique_ptr<command>*, flags)
 static const uint8_t INNER_PROLOGUE[17] = {
 	0x4C, 0x89, 0x4C, 0x24, 0x20,   // mov [rsp+0x20], r9
 	0x48, 0x89, 0x54, 0x24, 0x10,   // mov [rsp+0x10], rdx
@@ -289,7 +289,7 @@ static uint8_t inner_handler(void *dispatcher, void **pcmd, int flags, void *r9)
 			EnterCriticalSection(&cmdlog_lock);
 			LOG("comando %s vtable=exe+0x%llX flags=0x%X thread=%lu%s", name, (unsigned long long)(rdp(c) - B), flags,
 			    GetCurrentThreadId(), GetCurrentThreadId() == H->main_thread ? " (principal)" : "");
-			// marcha: o comando inteiro (0x168) e o conteudo da lista de caminho (+0x38: dados, +0x40/+0x44: tamanhos)
+			// march: the whole command (0x168) and the contents of the path list (+0x38: data, +0x40/+0x44: sizes)
 			int move = rdp(c) == B + RVA_VT_MOVE_UNIT;
 			hexdump("  cmd", c, move ? MOVE_UNIT_SIZE : 0x70);
 			if (move) {
@@ -300,7 +300,7 @@ static uint8_t inner_handler(void *dispatcher, void **pcmd, int flags, void *r9)
 			}
 			LeaveCriticalSection(&cmdlog_lock);
 		} else if (c) {
-			// demais classes: so o nome (para nao esconder um comando de nome inesperado)
+			// other classes: only the name (so a command with an unexpected name is not hidden)
 			EnterCriticalSection(&cmdlog_lock);
 			LOG("comando_outro %s flags=0x%X thread=%lu", name, flags, GetCurrentThreadId());
 			LeaveCriticalSection(&cmdlog_lock);
@@ -335,7 +335,7 @@ static void hook2_install(void)
 		uint8_t *pg = VirtualAlloc(NULL, 128, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 		if (!pg)
 			return;
-		static const uint8_t head[14] = { 0x48, 0x8B, 0x05, 41, 0, 0, 0,   // mov rax, [rip+41] (slot em +48)
+		static const uint8_t head[14] = { 0x48, 0x8B, 0x05, 41, 0, 0, 0,   // mov rax, [rip+41] (slot at +48)
 		                                  0x48, 0x85, 0xC0,              // test rax, rax
 		                                  0x74, 0x02,                    // jz +2
 		                                  0xFF, 0xE0 };                  // jmp rax
@@ -366,11 +366,11 @@ static void hook2_remove(void)
 {
 	if (hook2_page) {
 		*(void *volatile *)(hook2_page + 48) = NULL;
-		Sleep(300);   // deixa terminar quem ja estava dentro do tratador
+		Sleep(300);   // let whoever was already inside the handler finish
 	}
 }
 
-// ---- envio do move_unit ----
+// ---- sending move_unit ----
 static void free_path(uint8_t *path)
 {
 	void *list = *(void **)path;
@@ -381,18 +381,18 @@ static void free_path(uint8_t *path)
 	}
 }
 
-// ia = 1: envia como a IA envia (valid_for 2, flags 0x7; capturado com `cmdlog all` em 2026-10-06: as 131 marchas da
-// IA tinham so isso diferente das do jogador). Teste: a IA larga saque em andamento; o jogador nao.
+// ia = 1: sends the way the AI sends (valid_for 2, flags 0x7; captured with `cmdlog all` on 2026-10-06: the AI's 131
+// marches differed from the player's only in this). Test: the AI drops a raid in progress; the player does not.
 static uint8_t send_move_como(uint32_t unit, uint32_t province, uint32_t order_type, int ia)
 {
 	_Alignas(16) uint8_t cmd[MOVE_UNIT_SIZE];
 	memset(cmd, 0, sizeof cmd);
 	*(uint8_t **)(cmd + 0x00) = B + RVA_VT_MOVE_UNIT;
 	*(uint8_t **)(cmd + 0x18) = B + RVA_VT_MOVE_UNIT2;
-	*(uint32_t *)(cmd + 0x20) = ia ? 2 : 1;   // valid_for: 1 jogador, 2 IA
+	*(uint32_t *)(cmd + 0x20) = ia ? 2 : 1;   // valid_for: 1 player, 2 AI
 	*(uint32_t *)(cmd + 0x24) = unit;
 	*(uint32_t *)(cmd + 0x28) = province;
-	*(uint32_t *)(cmd + 0x2C) = order_type;   // 0 = substitui, 1 = fila
+	*(uint32_t *)(cmd + 0x2C) = order_type;   // 0 = replace, 1 = queue
 	*(uint32_t *)(cmd + 0x30) = 2;
 	*(uint32_t *)(cmd + 0x34) = 1;
 	((void (*)(void *))(B + RVA_PATH_CTOR))(cmd + 0x38);
@@ -408,7 +408,7 @@ static uint8_t send_move(uint32_t unit, uint32_t province, uint32_t order_type)
 	return send_move_como(unit, province, order_type, 0);
 }
 
-// ---- demais comandos de exercito (formatos capturados em 2026-10-04, ver docs/re/notas_comandos.md) ----
+// ---- other army commands (formats captured on 2026-10-04, see docs/dll/re/notas_comandos.md) ----
 #define RVA_VT_TOGGLE_RAID   0x432C7E8
 #define RVA_VT_TOGGLE_RAID2  0x432C628
 #define RVA_VT_SPLIT_HALF    0x432D408
@@ -419,7 +419,7 @@ static uint8_t send_move(uint32_t unit, uint32_t province, uint32_t order_type)
 #define RVA_VT_DISBAND2      0x432D3D8
 #define RVA_VT_PAUSE         0x432F300
 #define RVA_VT_PAUSE2        0x432F2D0
-#define RVA_ALLOC_U32        0x4FEADE0   // alocador usado nos vetores de ids
+#define RVA_ALLOC_U32        0x4FEADE0   // allocator used in the id vectors
 
 static uint8_t send_cmd(uint32_t vt, uint32_t vt2, const uint32_t *fields, int nfields, int flags)
 {
@@ -436,7 +436,7 @@ static uint8_t send_cmd(uint32_t vt, uint32_t vt2, const uint32_t *fields, int n
 
 static void cmd_army_action(char **a, int n)
 {
-	// raid <exercito> | split <exercito> | disband <exercito> | pause <0|1>
+	// raid <army> | split <army> | disband <army> | pause <0|1>
 	if (n < 2) {
 		LOG("uso: raid|split|disband <id do exercito>   ou   pause <0|1>");
 		return;
@@ -467,7 +467,7 @@ static uint32_t parse_unit(const char *s);
 
 static void cmd_stance(char **a, int n)
 {
-	// stance <unidade|last> <on|off|toggle> : modo "saquear ao parar" do exercito; so envia se precisar mudar
+	// stance <unit|last> <on|off|toggle> : the army's "raid when stopped" mode; only sends if it needs to change
 	if (n < 3) {
 		LOG("uso: stance <unidade|last> <on|off|toggle>");
 		return;
@@ -496,7 +496,7 @@ static void cmd_stance(char **a, int n)
 
 static void cmd_halt(char **a, int n)
 {
-	// halt <unidade|last> [unidade ...] : comando de parar (o mesmo do botao de parar do jogo)
+	// halt <unit|last> [unit ...] : stop command (the same as the game's stop button)
 	if (n < 2) {
 		LOG("uso: halt <unidade|last> [unidade ...]");
 		return;
@@ -509,7 +509,7 @@ static void cmd_halt(char **a, int n)
 	memset(cmd, 0, sizeof cmd);
 	*(uint8_t **)(cmd + 0x00) = B + RVA_VT_HALT;
 	*(uint8_t **)(cmd + 0x18) = B + RVA_VT_HALT2;
-	*(uint32_t *)(cmd + 0x20) = 1;   // valid_for = jogador (a IA usa 2)
+	*(uint32_t *)(cmd + 0x20) = 1;   // valid_for = player (the AI uses 2)
 	*(uint32_t **)(cmd + 0x28) = ids;
 	*(int32_t *)(cmd + 0x30) = cnt;
 	*(int32_t *)(cmd + 0x34) = cnt;
@@ -522,7 +522,7 @@ static void cmd_halt(char **a, int n)
 
 static void cmd_merge(char **a, int n)
 {
-	// merge <unidade destino> <unidade> [unidade ...]
+	// merge <target unit> <unit> [unit ...]
 	if (n < 3) {
 		LOG("uso: merge <unidade destino> <unidade> [unidade ...]");
 		return;
@@ -549,18 +549,18 @@ static void cmd_merge(char **a, int n)
 
 #define RVA_VT_RAISE         0x4122750
 #define RVA_VT_RAISE2        0x4122720
-#define RVA_ALLOC_RALLY      0x4FEBA40   // alocador do vetor de pontos de reuniao
+#define RVA_ALLOC_RALLY      0x4FEBA40   // allocator of the rally point vector
 
 static void cmd_raise(char **a, int n)
 {
-	// raise <provincia do ponto de reuniao> [tipo: 0 = normal, 1 = raid]
+	// raise <rally point province> [type: 0 = normal, 1 = raid]
 	if (n < 2) {
 		LOG("uso: raise <provincia do ponto de reuniao> [tipo]");
 		return;
 	}
 	static uint32_t rally[2];
-	rally[0] = (uint32_t)strtoul(a[1], NULL, 0);   // provincia
-	rally[1] = 0;                                  // cor
+	rally[0] = (uint32_t)strtoul(a[1], NULL, 0);   // province
+	rally[1] = 0;                                  // color
 	_Alignas(16) uint8_t cmd[0x100];
 	memset(cmd, 0, sizeof cmd);
 	*(uint8_t **)(cmd + 0x00) = B + RVA_VT_RAISE;
@@ -578,8 +578,8 @@ static void cmd_raise(char **a, int n)
 	LOG("raise provincia=%u tipo=%u: retorno=%u", rally[0], *(uint32_t *)(cmd + 0x48), r);
 }
 
-// ---- dias ate um ponto (mesmo calculo do tooltip de previsao de chegada) ----
-// Devolve os dias (arredondado para cima), -1 se nao ha caminho. Preenche o caminho achado se pedido.
+// ---- days to a point (same calculation as the arrival estimate tooltip) ----
+// Returns the days (rounded up), -1 if there is no path. Fills the path found if asked.
 static int eta_days_raw(uint8_t *unit, uint8_t *target, int64_t *raw, uint32_t *path_out, int *path_n, int path_max,
                     int64_t *total_cost)
 {
@@ -647,7 +647,7 @@ static int eta_days(uint8_t *unit, uint8_t *target, int64_t *raw, uint32_t *path
 	return d;
 }
 
-// dias que a unidade levaria de `start` (qualquer provincia) ate `target`, com a velocidade dela; -1 sem caminho
+// days the unit would take from `start` (any province) to `target`, at its speed; -1 without a path
 static int eta_from_raw(uint8_t *unit, uint8_t *start, uint8_t *target, int64_t *raw)
 {
 	_Alignas(16) uint8_t ctx[0x200];
@@ -673,7 +673,7 @@ static int eta_from_raw(uint8_t *unit, uint8_t *start, uint8_t *target, int64_t 
 	return days;
 }
 
-// caminho de `start` ate `target` com a velocidade da unidade (provincias depois de `start`); devolve o tamanho
+// path from `start` to `target` at the unit's speed (provinces after `start`); returns the size
 static int path_from(uint8_t *unit, uint8_t *start, uint8_t *target, uint32_t *out, int max)
 {
 	_Alignas(16) uint8_t ctx[0x200];
@@ -701,7 +701,7 @@ static int eta_from(uint8_t *unit, uint8_t *start, uint8_t *target)
 }
 
 
-// ---- pedidos ----
+// ---- requests ----
 static uint32_t parse_unit(const char *s)
 {
 	if (!s || strcmp(s, "last") == 0)
@@ -771,7 +771,7 @@ static void cmd_eta(char **a, int n)
 
 static void cmd_move(char **a, int n, int first)
 {
-	// move <unidade|last> <provincia> [queue] [ia]   (ia: enviado como a IA, valid_for 2)
+	// move <unit|last> <province> [queue] [ia]   (ia: sent as the AI, valid_for 2)
 	if (n < first + 2) {
 		LOG("uso: move <unidade|last> <provincia> [queue]");
 		return;
@@ -789,7 +789,7 @@ static void cmd_move(char **a, int n, int first)
 
 static void cmd_route(char **a, int n)
 {
-	// route <unidade|last> <p1> <p2> ... : primeira provincia substitui, as demais entram na fila
+	// route <unit|last> <p1> <p2> ... : first province replaces, the rest go into the queue
 	if (n < 3) {
 		LOG("uso: route <unidade|last> <p1> <p2> ...");
 		return;
@@ -804,7 +804,7 @@ static void cmd_route(char **a, int n)
 
 static void cmd_units(char **a, int n)
 {
-	// units [all|threat|count] : lista unidades (padrao: so as nossas; threat = inimigas e hostis)
+	// units [all|threat|count] : lists units (default: only ours; threat = enemy and hostile)
 	int all = n > 1 && strcmp(a[1], "all") == 0;
 	int threat = n > 1 && strcmp(a[1], "threat") == 0;
 	int only_count = n > 1 && strcmp(a[1], "count") == 0;
@@ -836,10 +836,10 @@ static void cmd_units(char **a, int n)
 
 static void cmd_threats(char **a, int n)
 {
-	// threats <unidade|last> [dias] : unidades alheias cujo caminho cruza a nossa provincia ou a nossa rota
+	// threats <unit|last> [days] : foreign units whose path crosses our province or our route
 	uint32_t id = parse_unit(n > 1 ? a[1] : "last");
 	int horizon = n > 2 ? atoi(a[2]) : 15;
-	int any_class = n > 3 && strcmp(a[3], "all") == 0;   // "all": considera qualquer unidade alheia
+	int any_class = n > 3 && strcmp(a[3], "all") == 0;   // "all": considers any foreign unit
 	uint8_t *me_u = unit_by_id(id);
 	if (!me_u) {
 		LOG("threats: unidade %u nao encontrada", id);
@@ -873,7 +873,7 @@ static void cmd_threats(char **a, int n)
 		if (pn > 256)
 			pn = 256;
 		checked++;
-		// primeiro ponto do caminho dele que esta na nossa provincia/rota
+		// first point of its path that is in our province/route
 		int hit = -1, where = 0;
 		for (int k = 0; k < pn && hit < 0; k++)
 			for (int m = 0; m < mn; m++)
@@ -900,7 +900,7 @@ static void cmd_threats(char **a, int n)
 
 static void cmd_peek(char **a, int n)
 {
-	// peek <endereco|exe+RVA|unit:<id>|prov:<id>> [bytes]
+	// peek <address|exe+RVA|unit:<id>|prov:<id>> [bytes]
 	if (n < 2) {
 		LOG("uso: peek <endereco | exe+RVA | unit:<id> | prov:<id> | army:<id>> [bytes]");
 		return;
@@ -924,8 +924,8 @@ static void cmd_peek(char **a, int n)
 		hexdump("  ", p, bytes);
 }
 
-// busca32 <gs|gs2|endereco> <valor> [bytes=0x40000]: deslocamentos (alinhados em 4) do bloco que guardam o valor de
-// 32 bits; gs = [game_state], gs2 = [[game_state]+0xa0]. Para achar campos (ex.: a data do jogo)
+// busca32 <gs|gs2|address> <value> [bytes=0x40000]: offsets (4-aligned) in the block that hold the 32-bit value;
+// gs = [game_state], gs2 = [[game_state]+0xa0]. To find fields (e.g. the game date)
 static void cmd_find32(char **a, int n)
 {
 	if (n < 3) {
@@ -948,8 +948,8 @@ static void cmd_find32(char **a, int n)
 	LOG("busca32 %s (%p) valor %u: %d achado(s)", a[1], p, v, achados);
 }
 
-// procura <valor hex | exe+RVA> [max] : enderecos (alinhados em 8) da memoria propria do processo que guardam o valor
-// de 64 bits. Roda numa thread separada (le dezenas de GB e levaria a thread principal junto)
+// procura <hex value | exe+RVA> [max] : addresses (8-aligned) in the process's own memory that hold the 64-bit
+// value. Runs on a separate thread (reads tens of GB and would drag the main thread along)
 static struct { uint64_t v; int max; } find_req;
 static volatile LONG find_busy;
 
@@ -963,7 +963,7 @@ static DWORD WINAPI find_thread(void *unused)
 	while (found < max && VirtualQuery(p, &mi, sizeof mi) == sizeof mi) {
 		uint8_t *next = (uint8_t *)mi.BaseAddress + mi.RegionSize;
 		DWORD pr = mi.Protect & 0xff;
-		// so memoria propria do processo: mapeamentos de arquivo e memoria de video (write-combine) sao lentos de ler
+		// only the process's own memory: file mappings and video memory (write-combine) are slow to read
 		if (mi.State == MEM_COMMIT && (mi.Type == MEM_PRIVATE || mi.Type == MEM_IMAGE) &&
 		    !(mi.Protect & (PAGE_GUARD | PAGE_NOCACHE | PAGE_WRITECOMBINE)) &&
 		    (pr == PAGE_READWRITE || pr == PAGE_READONLY || pr == PAGE_WRITECOPY || pr == PAGE_EXECUTE_READ ||
@@ -1009,19 +1009,19 @@ static void cmd_find(char **a, int n)
 		InterlockedExchange(&find_busy, 0);
 }
 
-// layout <janela hex> <arquivo> : acrescenta as paginas do arquivo (formato do settings_layout.txt) a janela de
-// configuracoes, lendo o texto da memoria (prova C2b, docs/arquitetura_dll.md secao 11.6b)
+// layout <hex window> <file> : appends the file's pages (settings_layout.txt format) to the settings
+// window, reading the text from memory (proof C2b, docs/dll/arquitetura_dll.md section 11.6b)
 #define RVA_VT_MEMORY_FILE  0x4559758
 #define RVA_ALLOC_CHAR      0x4fea420   // CPdxTypedNewDeleteAllocator<char>
-#define RVA_FN_BUF_COPY     0x3bb5200   // (buffer, texto, tamanho)
-#define RVA_FN_LEXER_STREAM 0x3b58cf0   // CLexer(lexer, &arquivo, 0)
+#define RVA_FN_BUF_COPY     0x3bb5200   // (buffer, text, size)
+#define RVA_FN_LEXER_STREAM 0x3b58cf0   // CLexer(lexer, &file, 0)
 #define RVA_VT_TEXT_LEXER   0x4556c20
 #define RVA_FN_LEXER_DTOR   0x3b58dc0
-#define RVA_FN_READER       0x3b8e670   // (leitor, &lexer)
+#define RVA_FN_READER       0x3b8e670   // (reader, &lexer)
 #define RVA_FN_READER_DTOR  0x3b8e850
-#define RVA_FN_BIND_CAT     0x32d5230   // (secao)
-#define WIN_PAGES           0xd8        // vetor de paginas: ponteiro, +0x08 capacidade, +0x0c quantidade
-#define WIN_LAYOUT          0xc8        // sub-objeto que le o layout (vtable[3])
+#define RVA_FN_BIND_CAT     0x32d5230   // (section)
+#define WIN_PAGES           0xd8        // page vector: pointer, +0x08 capacity, +0x0c count
+#define WIN_LAYOUT          0xc8        // sub-object that reads the layout (vtable[3])
 
 static void cmd_layout(char **a, int n)
 {
@@ -1047,7 +1047,7 @@ static void cmd_layout(char **a, int n)
 	*(void **)mem = B + RVA_VT_MEMORY_FILE;
 	*(int32_t *)(mem + 0x08) = 1;
 	*(int64_t *)(mem + 0x10) = 1;
-	*(int64_t *)(mem + 0x30) = 0xf;              // std::string vazia em +0x18
+	*(int64_t *)(mem + 0x30) = 0xf;              // empty std::string at +0x18
 	*(void **)(mem + 0x38) = buf;
 	*(int32_t *)(mem + 0x50) = -1;
 	((void (*)(void *, void *, int))(B + RVA_FN_LEXER_STREAM))(lexer, mem, 0);
@@ -1071,12 +1071,12 @@ static void cmd_layout(char **a, int n)
 	LOG("layout: %d -> %d paginas (%u bytes de texto)", before, after, (unsigned)len);
 }
 
-// opcao <grupo> <nome> <chave_texto> <0|1> : registra uma opcao liga/desliga com o jogo aberto (depois da trava do
-// gerenciador) e aplica o valor pelo mesmo caminho do clique na interface (prova C2b.3)
+// opcao <group> <name> <text_key> <0|1> : registers an on/off option with the game open (after the manager's
+// lock) and applies the value through the same path as a click in the interface (proof C2b.3)
 #define RVA_SETTINGS_MANAGER 0x5710d58
-#define RVA_FN_SETTING_REG   0x3b44cf0   // (gerenciador, &grupo, opcao, n)
-#define RVA_FN_BOOL_SETTING  0x3b46730   // (obj 0xF8, &nome, &chave_texto, padrao, 0)
-#define RVA_FN_BOOL_SET      0x3b46990   // (opcao, valor, 1): o que o clique da caixa chama
+#define RVA_FN_SETTING_REG   0x3b44cf0   // (manager, &group, option, n)
+#define RVA_FN_BOOL_SETTING  0x3b46730   // (obj 0xF8, &name, &text_key, default, 0)
+#define RVA_FN_BOOL_SET      0x3b46990   // (option, value, 1): what the checkbox click calls
 #define RVA_FN_NEW           0x3e25d74
 static void cmd_option(char **a, int n)
 {
@@ -1086,7 +1086,7 @@ static void cmd_option(char **a, int n)
 	}
 	struct { const char *p; int32_t len; uint8_t flag; } __attribute__((aligned(16))) g = { a[1], (int32_t)strlen(a[1]), 0 },
 		nm = { a[2], (int32_t)strlen(a[2]), 0 }, k = { a[3], (int32_t)strlen(a[3]), 0 };
-	static char names[16][3][64];   // os textos precisam durar (o jogo copia, mas por garantia)
+	static char names[16][3][64];   // the texts must outlive the call (the game copies them, but just in case)
 	(void)names;
 	void *mgr = rdp(B + RVA_SETTINGS_MANAGER);
 	uint8_t *obj = mgr ? ((uint8_t *(*)(size_t))(B + RVA_FN_NEW))(0xF8) : NULL;
@@ -1103,7 +1103,7 @@ static void cmd_option(char **a, int n)
 	    obj[0xd0], obj[0xe0], obj[0xf0]);
 }
 
-// layout_tirar <janela hex> <indice> : tira a pagina do vetor de paginas (a memoria da pagina nao e liberada)
+// layout_tirar <hex window> <index> : removes the page from the page vector (the page's memory is not freed)
 static void cmd_layout_remove(char **a, int n)
 {
 	if (n < 3) {
@@ -1124,7 +1124,7 @@ static void cmd_layout_remove(char **a, int n)
 
 static void cmd_pan(char **a, int n)
 {
-	// pan <provincia> : centraliza a camera do jogo na provincia
+	// pan <province> : centers the game camera on the province
 	uint32_t pid = n > 1 ? (uint32_t)strtoul(a[1], NULL, 0) : 0;
 	uint8_t *p = province_by_id(pid);
 	if (!p) {
@@ -1137,19 +1137,19 @@ static void cmd_pan(char **a, int n)
 	LOG("pan: camera na provincia %u (%s)", pid, prov_key(p, key, sizeof key));
 }
 
-// ---- batalha (docs/plano_re_batalha.md, R1/R2) ----
-// combate: tabela global (id em +0x8); exercito -> id do combate em +0x128 (CArmyToCombatSideLink, 0x19da920). Combate:
-// lados em +0x20 e +0x368 (CCombatSide, 0x348 bytes; lado 0 = atacante, cujos exercitos estao na lista +0x30/+0x3c),
-// largura +0x6c4, base da vantagem +0x6c8, rolagens +0x6d0/+0x6d4, multiplicador de dano do lado com vantagem +0x6d8,
-// contador de rolagem +0x6e4, vencedor forcado +0x700, vantagem (atacante - defensor) +0x710. Lado: comandante +0x74,
-// homens lutando +0x98, total +0xa8.
+// ---- battle (auto_raid docs/plano_re_batalha.md, R1/R2) ----
+// combat: global table (id at +0x8); army -> combat id at +0x128 (CArmyToCombatSideLink, 0x19da920). Combat:
+// sides at +0x20 and +0x368 (CCombatSide, 0x348 bytes; side 0 = attacker, whose armies are in the list +0x30/+0x3c),
+// width +0x6c4, advantage base +0x6c8, rolls +0x6d0/+0x6d4, damage multiplier of the side with advantage +0x6d8,
+// roll counter +0x6e4, forced winner +0x700, advantage (attacker - defender) +0x710. Side: commander +0x74,
+// men fighting +0x98, total +0xa8.
 #define RVA_COMBAT_TABLE   0x570c6d8
-#define RVA_FN_SIDE_ADV    0x2307cd0   // (combate, &saida, lado, dica|NULL): rolagem + comandante + modificadores do lado
-#define RVA_FN_CMD_ADV     0x23076a0   // (combate, &saida, personagem, lado, x, dica|NULL)
-#define RVA_FN_MOD_ADV     0x2307250   // (combate, &saida, bloco do lado, lado, x, dica|NULL)
-#define RVA_FN_ADV_X       0x23070a0   // (combate, lado) -> x
-#define RVA_FN_CHAR_MODS   0x26172e0   // (personagem) -> objeto com o bloco de modificadores em +0x68
-#define RVA_FN_MOD_VALUE   0x20ab970   // (bloco, &saida, indice u16) -> valor em ponto fixo (0 se ausente)
+#define RVA_FN_SIDE_ADV    0x2307cd0   // (combat, &out, side, tooltip|NULL): roll + commander + the side's modifiers
+#define RVA_FN_CMD_ADV     0x23076a0   // (combat, &out, character, side, x, tooltip|NULL)
+#define RVA_FN_MOD_ADV     0x2307250   // (combat, &out, side block, side, x, tooltip|NULL)
+#define RVA_FN_ADV_X       0x23070a0   // (combat, side) -> x
+#define RVA_FN_CHAR_MODS   0x26172e0   // (character) -> object with the modifier block at +0x68
+#define RVA_FN_MOD_VALUE   0x20ab970   // (block, &out, u16 index) -> fixed-point value (0 if absent)
 
 static uint8_t *combat_of_army(uint32_t army)
 {
@@ -1157,7 +1157,7 @@ static uint8_t *combat_of_army(uint32_t army)
 	return ex ? table_get(RVA_COMBAT_TABLE, rd32(ex + 0x128), 0x8) : NULL;
 }
 
-#define RVA_FN_ROLL_BOUND  0x2308e10   // (personagem, tipo de terreno, minimo?, dica|NULL) -> rolagem minima/maxima
+#define RVA_FN_ROLL_BOUND  0x2308e10   // (character, terrain type, minimum?, tooltip|NULL) -> minimum/maximum roll
 
 static int combat_fill(uint8_t *c, uint32_t army, ck3_combat *o)
 {
@@ -1187,7 +1187,7 @@ static int combat_fill(uint8_t *c, uint32_t army, ck3_combat *o)
 		if (ch) {
 			((int64_t *(*)(void *, int64_t *, void *, int, int, void *))(B + RVA_FN_CMD_ADV))(c, &cmd, ch, s, x, NULL);
 			if (terr) {
-				// terceiro argumento 1 = minimo (COMMANDER_MIN_ROLL + min_combat_roll), 0 = maximo
+				// third argument 1 = minimum (COMMANDER_MIN_ROLL + min_combat_roll), 0 = maximum
 				o->rmin[s] = ((int (*)(void *, void *, int, void *))(B + RVA_FN_ROLL_BOUND))(ch, terr, 1, NULL);
 				o->rmax[s] = ((int (*)(void *, void *, int, void *))(B + RVA_FN_ROLL_BOUND))(ch, terr, 0, NULL);
 			}
@@ -1203,12 +1203,12 @@ static int combat_fill(uint8_t *c, uint32_t army, ck3_combat *o)
 	return 1;
 }
 
-// (api 6) combate hipotetico (docs/plano_re_batalha.md R7): objeto de combate minimo com o que as funcoes de vantagem leem
-// (provincia em +0x6b8, flag da provincia em +0x6fd pela mesma funcao do construtor, e por lado: participante principal
-// +0x70 = dono do exercito, comandante +0x74 = exercito+0x120, lista de exercitos +0x10/+0x1c) e as mesmas funcoes do jogo
-// para V (sem rolagem) e a faixa de rolagem. A base (efeitos de combate) fica com quem chama
-#define RVA_FN_COMBAT_EFFECTS 0x2304850 // (combate): efeitos de combate do inicio na base
-#define RVA_FN_PROV_FLAG   0xbc24e0    // (provincia) -> byte guardado em combate+0x6fd no construtor
+// (api 6) hypothetical combat (auto_raid docs/plano_re_batalha.md R7): minimal combat object with what the advantage functions read
+// (province at +0x6b8, province flag at +0x6fd via the same function as the constructor, and per side: main participant
+// +0x70 = army owner, commander +0x74 = army+0x120, army list +0x10/+0x1c) and the same game functions
+// for V (without roll) and the roll range. The base (combat effects) is left to the caller
+#define RVA_FN_COMBAT_EFFECTS 0x2304850 // (combat): starting combat effects in the base
+#define RVA_FN_PROV_FLAG   0xbc24e0    // (province) -> byte stored at combat+0x6fd in the constructor
 
 static int api_combat_hypo(uint32_t atac, uint32_t def, uint32_t prov, ck3_combat *o)
 {
@@ -1230,15 +1230,15 @@ static int api_combat_hypo(uint32_t atac, uint32_t def, uint32_t prov, ck3_comba
 	for (int k = 0; k < 2; k++) {
 		uint8_t *sd = c + 0x20 + k * 0x348, *u = unit_by_id(rd32(ex[k] + 0x124));
 		*(uint32_t *)(sd + 0x70) = u ? rd32(u + UNIT_OWNER_CHAR) : 0;
-		*(uint32_t *)(sd + 0x74) = rd32(ex[k] + 0x120);   // comandante do exercito
+		*(uint32_t *)(sd + 0x74) = rd32(ex[k] + 0x120);   // army commander
 		*(uint32_t **)(sd + 0x10) = &lista[k];
 		*(int32_t *)(sd + 0x1c) = 1;
 		*(int32_t *)(sd + 0x18) = 1;
 	}
-	// efeitos de combate do inicio (suprimento, reuniao das levas, fortaleza/fe do dono do local, divida): a funcao do jogo
-	// (0x2304850) soma na base (+0x6c8) e registra cada efeito na lista do lado (+0x78 do lado: ponteiro, capacidade,
-	// tamanho; 16 bytes por efeito); a lista vem pronta com folga, para o jogo nao alocar memoria no combate falso. Terreno
-	// e travessia sao aplicados na criacao do combate pelo movimento (0x2209470) e ficam de fora
+	// starting combat effects (supply, levy gathering, fort/faith of the location's owner, debt): the game function
+	// (0x2304850) adds to the base (+0x6c8) and records each effect in the side's list (+0x78 of the side: pointer, capacity,
+	// size; 16 bytes per effect); the list comes ready with spare room, so the game does not allocate memory in the fake combat. Terrain
+	// and crossing are applied when the combat is created by movement (0x2209470) and are left out
 	static uint8_t lista_ef[2][64 * 16];
 	for (int k = 0; k < 2; k++) {
 		uint8_t *sd = c + 0x20 + k * 0x348;
@@ -1273,7 +1273,7 @@ static int api_combat_hypo(uint32_t atac, uint32_t def, uint32_t prov, ck3_comba
 
 static void cmd_hipo(char **a, int n)
 {
-	// hipo <exercito atacante> <exercito defensor> <provincia>: vantagem calculada sem combate (api 6)
+	// hipo <attacking army> <defending army> <province>: advantage calculated without combat (api 6)
 	if (n < 4) {
 		LOG("uso: hipo <atacante> <defensor> <provincia>");
 		return;
@@ -1297,7 +1297,7 @@ static int api_combat_info(uint32_t army, ck3_combat *out)
 
 static void cmd_combate(char **a, int n)
 {
-	// combate <exercito>: estado do combate em que o exercito esta
+	// combate <army>: state of the combat the army is in
 	if (n < 2) {
 		LOG("uso: combate <exercito>");
 		return;
@@ -1332,7 +1332,7 @@ static void cmd_combate(char **a, int n)
 
 static void cmd_modval(char **a, int n)
 {
-	// modval <personagem>: todos os modificadores do bloco do personagem (indice e valor)
+	// modval <character>: all modifiers of the character's block (index and value)
 	if (n < 2) {
 		LOG("uso: modval <personagem>");
 		return;
@@ -1367,8 +1367,8 @@ static void cmd_modval(char **a, int n)
 
 static void cmd_predict(char **a, int n)
 {
-	// predict <unidade nossa|last>[,unidade...] <unidade deles>[,unidade...] : previsao de combate do jogo
-	// entre dois grupos (ids de unidade separados por virgula, sem espacos)
+	// predict <our unit|last>[,unit...] <their unit>[,unit...] : the game's combat prediction
+	// between two groups (unit ids separated by commas, no spaces)
 	if (n < 3) {
 		LOG("uso: predict <nossas,separadas,por,virgula> <deles,separadas,por,virgula>");
 		return;
@@ -1412,7 +1412,7 @@ static int prov_is_sea(uint8_t *prov)
 	return b != 0;
 }
 
-// dias de saque: total exigido pela provincia / progresso por dia da unidade (descontando o ja feito)
+// raid days: total required by the province / the unit's progress per day (minus what is already done)
 static int raid_days_raw(uint8_t *army, uint8_t *prov, int64_t done, int64_t *total_out, int64_t *perday_out);
 static int raid_days(uint8_t *army, uint8_t *prov, int64_t done, int64_t *total_out, int64_t *perday_out)
 {
@@ -1446,8 +1446,8 @@ static int raid_days_raw(uint8_t *army, uint8_t *prov, int64_t done, int64_t *to
 
 static void cmd_loot(char **a, int n)
 {
-	// loot <unidade|last> [provincia] : saque carregado, capacidade, raid em andamento e dias para terminar;
-	// com provincia, estima os dias de saque naquele local
+	// loot <unit|last> [province] : loot carried, capacity, raid in progress and days to finish;
+	// with a province, estimates the raid days at that location
 	uint32_t id = parse_unit(n > 1 ? a[1] : "last");
 	uint8_t *u = unit_by_id(id);
 	if (!u) {
@@ -1493,7 +1493,7 @@ static int unit_army_cap(uint8_t *u, uint8_t **army_out, double *free_cap)
 	return 1;
 }
 
-// estado de pausa: 0 = correndo, bit 1 = pausado pelo jogador, bit 2 = pausado por evento/mensagem, bit 4 = outra
+// pause state: 0 = running, bit 1 = paused by the player, bit 2 = paused by event/message, bit 4 = other
 static int pause_state(void)
 {
 	int st = 0;
@@ -1517,8 +1517,8 @@ static void cmd_state(void)
 	    gs ? rd32(gs + 0x70) + 1 : 0);
 }
 
-// velocidade <1..5>: grava o campo que o `state` le ([game_state]+0x70 = velocidade - 1). Para rodadas sem janela
-// (-nographics), onde a tecla 5 por PostMessage nao tem para onde ir (docs/dossie_exercitos.md, 9.6)
+// velocidade <1..5>: writes the field that `state` reads ([game_state]+0x70 = speed - 1). For windowless runs
+// (-nographics), where the 5 key via PostMessage has nowhere to go (auto_raid docs/dossie_exercitos.md, 9.6)
 static void cmd_speed(int v)
 {
 	uint8_t *gs = rdp(B + RVA_GAME_STATE);
@@ -1531,10 +1531,10 @@ static void cmd_speed(int v)
 	LOG("velocidade: %u -> %u", antes, rd32(gs + 0x70) + 1);
 }
 
-#define GS_DATE_OFF 0x9c   // [game_state]+0x9c: data do jogo em dias desde o ano 0, 365 por ano (busca32, 2026-10-07)
+#define GS_DATE_OFF 0x9c   // [game_state]+0x9c: game date in days since year 0, 365 per year (busca32, 2026-10-07)
 
-// status <canal>: o carregador pede a cada segundo; grava ck3_custom\status.json para o painel
-// (docs/testes/painel.py), sem passar pelo log
+// status <channel>: the loader asks every second; writes ck3_custom\status.json for the panel
+// (auto_raid docs/testes/painel.py), without going through the log
 static void cmd_status(const char *canal)
 {
 	char path[MAX_PATH + 64], tmp[MAX_PATH + 64];
@@ -1546,9 +1546,9 @@ static void cmd_status(const char *canal)
 	FILE *f = fopen(tmp, "w");
 	if (!f)
 		return;
-	// sem graficos a partida comeca correndo depois da carga (com graficos abre pausada): pausa na passagem
-	// "carregando -> carregada" (velocidade -1 durante a carga), como o jogo com janela. -1 = ainda nao visto (recarga
-	// do nucleo com a partida correndo nao pausa)
+	// without graphics the game starts running after loading (with graphics it opens paused): pause on the transition
+	// "loading -> loaded" (speed -1 during loading), like the game with a window. -1 = not seen yet (a core reload
+	// with the game running does not pause)
 	static int carregando_antes = -1;
 	int carregando = !gs || rd32(gs + 0x70) > 4;
 	if (carregando_antes == 1 && !carregando && strstr(GetCommandLineA(), "-nographics")) {
@@ -1581,8 +1581,8 @@ static void cmd_status(const char *canal)
 	MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING);
 }
 
-// ---- eventos pendentes do jogador ----
-#define EVENTS_OFF        0x2f4c0   // [[estado]+0xa0] + isto = gerente de eventos
+// ---- the player's pending events ----
+#define EVENTS_OFF        0x2f4c0   // [[state]+0xa0] + this = event manager
 #define EVENTS_ARRAY      0x1f18
 #define EVENTS_COUNT      0x1f24
 #define EVENT_OWNER       0x1b8
@@ -1590,15 +1590,15 @@ static void cmd_status(const char *canal)
 #define RVA_VT_EVENT_OPT  0x4335150
 #define RVA_VT_EVENT_OPT2 0x4335120
 
-// ---- carregar um save com o jogo aberto (o mesmo caminho do --continuelastsave: "Hosting save") ----
-#define RVA_FN_SAVE_EXISTS 0x3be2290   // (&texto) -> nao nulo se o arquivo de save existe
-#define RVA_FN_ALLOC       0x3e25d74   // operator new do jogo
-#define RVA_FN_SAVE_SOURCE 0x3b55990   // (objeto 0x68, &texto, 1, 0): origem do save a carregar
-#define RVA_GAME_APP       0x576cbe8   // CGameApplication*; vtable +0x78 = carregar save (app, origem, opcoes)
+// ---- load a save with the game open (the same path as --continuelastsave: "Hosting save") ----
+#define RVA_FN_SAVE_EXISTS 0x3be2290   // (&text) -> non-null if the save file exists
+#define RVA_FN_ALLOC       0x3e25d74   // the game's operator new
+#define RVA_FN_SAVE_SOURCE 0x3b55990   // (object 0x68, &text, 1, 0): source of the save to load
+#define RVA_GAME_APP       0x576cbe8   // CGameApplication*; vtable +0x78 = load save (app, source, options)
 
 static void cmd_load(const char *line)
 {
-	// carregar [testar] <caminho do save, pode ter espacos>
+	// carregar [testar] <save path, may contain spaces>
 	static char path[512];
 	int test = !strncmp(line, "testar ", 7);
 	if (test)
@@ -1624,11 +1624,11 @@ static void cmd_load(const char *line)
 	LOG("carregar: pedido enviado");
 }
 
-// ---- salvar a partida (CAutoSaveCommand: +0x20 std::string com o nome do save; vazio = autosave) ----
+// ---- save the game (CAutoSaveCommand: +0x20 std::string with the save name; empty = autosave) ----
 #define RVA_VT_AUTOSAVE  0x40aabe8
 #define RVA_VT_AUTOSAVE2 0x40aac80
 
-static int mute_chamar;   // teste: `mudo on` faz os efeitos dos plugins nao responderem (o jogo sem a DLL)
+static int mute_chamar;   // test: `mudo on` makes the plugins' effects not respond (the game without the DLL)
 
 static void cmd_save(char **a, int n)
 {
@@ -1642,7 +1642,7 @@ static void cmd_save(char **a, int n)
 	memset(cmd, 0, sizeof cmd);
 	*(uint8_t **)(cmd + 0x00) = B + RVA_VT_AUTOSAVE;
 	*(uint8_t **)(cmd + 0x18) = B + RVA_VT_AUTOSAVE2;
-	memcpy(cmd + 0x20, name, len);       // std::string curta: texto dentro do objeto
+	memcpy(cmd + 0x20, name, len);       // short std::string: text inside the object
 	*(uint64_t *)(cmd + 0x30) = len;
 	*(uint64_t *)(cmd + 0x38) = 15;
 	sending = 1;
@@ -1651,10 +1651,10 @@ static void cmd_save(char **a, int n)
 	LOG("salvar '%s': retorno=%u", name, r);
 }
 
-// ---- tela de sucessao (PAUSED_BY_SUCCESSION) ----
-// CPlayerInfo em [[estado]+0xa0]+0x1d548 (quantidade em +0x1d554): +0xb0 id do jogador, +0xd8 personagem,
-// +0x260 sucessao aguardando o jogador fechar a tela. CCloseSuccessionCommand: +0x20 = [+0xb0], +0x24 = [+0xd8].
-// Flags 0xF: com a tela aberta o despachante fica bloqueado (+0x29a) e so aceita comando com o bit 0 (como a pausa)
+// ---- succession screen (PAUSED_BY_SUCCESSION) ----
+// CPlayerInfo at [[state]+0xa0]+0x1d548 (count at +0x1d554): +0xb0 player id, +0xd8 character,
+// +0x260 succession waiting for the player to close the screen. CCloseSuccessionCommand: +0x20 = [+0xb0], +0x24 = [+0xd8].
+// Flags 0xF: with the screen open the dispatcher is blocked (+0x29a) and only accepts commands with bit 0 (like pause)
 #define RVA_VT_CLOSE_SUCC  0x43220e8
 #define RVA_VT_CLOSE_SUCC2 0x43220b8
 
@@ -1679,7 +1679,7 @@ static int succession(int close)
 
 static void cmd_events(char **a, int n)
 {
-	// events [dump | answer [opcao]] : lista os eventos pendentes do jogador; answer responde a todos
+	// events [dump | answer [option]] : lists the player's pending events; answer replies to all of them
 	uint8_t *gs = rdp(rdp(B + RVA_GAME_STATE) + 0xa0);
 	if (!gs) {
 		LOG("events: sem partida carregada");
@@ -1700,7 +1700,7 @@ static void cmd_events(char **a, int n)
 		if (n > 1 && !strcmp(a[1], "dump"))
 			hexdump("  ev", e, 0x1D0);
 		if (n > 1 && !strcmp(a[1], "answer")) {
-			// responde com a opcao pedida (padrao 0, a primeira)
+			// replies with the requested option (default 0, the first)
 			uint32_t f[2] = { eid, n > 2 ? (uint32_t)strtoul(a[2], NULL, 0) : 0 };
 			uint8_t r = send_cmd(RVA_VT_EVENT_OPT, RVA_VT_EVENT_OPT2, f, 2, 0xE);
 			LOG("  respondido: evento=%u opcao=%u retorno=%u", f[0], f[1], r);
@@ -1712,7 +1712,7 @@ static void cmd_events(char **a, int n)
 
 static void cmd_answer(char **a, int n)
 {
-	// answer <id do evento> <opcao> : escolhe uma opcao de evento (CSelectEventOptionCommand)
+	// answer <event id> <option> : picks an event option (CSelectEventOptionCommand)
 	if (n < 3) {
 		LOG("uso: answer <id do evento> <indice da opcao>");
 		return;
@@ -1730,17 +1730,17 @@ static void cmd_info(void)
 	    last_player_unit, (long long)rd64(B + RVA_NOW));
 }
 
-// ---- console do jogo ----
-#define RVA_CONSOLE         0x570f7b0   // ponteiro global do console (CConsole)
-#define RVA_FN_CONSOLE_EXEC 0x34b1970   // (texto*): a funcao por tras de ExecuteConsoleCommand da interface
+// ---- game console ----
+#define RVA_CONSOLE         0x570f7b0   // global console pointer (CConsole)
+#define RVA_FN_CONSOLE_EXEC 0x34b1970   // (text*): the function behind the interface's ExecuteConsoleCommand
 
-// Efeito de script sem o console (jogo sem graficos, -nographics, nao cria o CConsole; docs/plano_sem_graficos.md):
-// 0xe3e8b0 e o comando de console `effect` (o mesmo que o comando `run` chama com o texto de um arquivo):
-// (resultado*, leitor*), resultado = { u8 ok; std::string mensagem em +8 }. Roda no personagem do jogador, na hora.
+// Script effect without the console (the game without graphics, -nographics, does not create the CConsole; docs/dll/plano_sem_graficos.md):
+// 0xe3e8b0 is the `effect` console command (the same one the `run` command calls with the text of a file):
+// (result*, reader*), result = { u8 ok; std::string message at +8 }. Runs on the player's character, immediately.
 #define RVA_FN_EFFECT_CMD   0xe3e8b0
 
-// O comando escreve o resultado no console (0x34b47d0, console em rcx): sem console, rcx nulo e falha. Desvio
-// permanente (a pagina sobrevive a recarga do nucleo; prologo trocado = ja instalado): rcx nulo -> retorna 0.
+// The command writes the result to the console (0x34b47d0, console in rcx): without a console, rcx is null and it crashes. Permanent
+// detour (the page survives a core reload; prologue already replaced = already installed): rcx null -> returns 0.
 #define RVA_FN_CONSOLE_PRINT 0x34b47d0
 static const uint8_t CONPRINT_PROLOGUE[15] = {
 	0x48, 0x89, 0x5C, 0x24, 0x08,   // mov [rsp+8], rbx
@@ -1752,7 +1752,7 @@ static int conprint_guard(void)
 {
 	uint8_t *target = B + RVA_FN_CONSOLE_PRINT;
 	if (memcmp(target, CONPRINT_PROLOGUE, sizeof CONPRINT_PROLOGUE) != 0)
-		return target[0] == 0xFF && target[1] == 0x25;   // ja desviado
+		return target[0] == 0xFF && target[1] == 0x25;   // already detoured
 	uint8_t *pg = VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 	if (!pg)
 		return 0;
@@ -1785,8 +1785,8 @@ static void effect_direct(const char *text)
 		return;
 	}
 	uint8_t *gs = rdp(B + RVA_GAME_STATE);
-	// durante a carga a velocidade vale -1; um efeito nessa hora derruba o jogo (C0000005 em exe+0xe3ea3e, dentro
-	// desta funcao: o jogador ainda nao existe)
+	// during loading the speed is -1; an effect at that moment crashes the game (C0000005 at exe+0xe3ea3e, inside
+	// this function: the player does not exist yet)
 	if (!gs || rd32(gs + 0x70) > 4) {
 		LOG("console: efeito recusado, partida nao carregada: %s", text);
 		return;
@@ -1804,7 +1804,7 @@ static void effect_direct(const char *text)
 	((void (*)(void *, void *, int))(B + RVA_FN_LEXER_STREAM))(lexer, mem, 0);
 	*(void **)lexer = B + RVA_VT_TEXT_LEXER;
 	((void (*)(void *, void *))(B + RVA_FN_READER))(reader, lexer);
-	LOG("console: enviado: effect %s (direto, sem console)", text);   // antes: o painel junta o que vem depois
+	LOG("console: enviado: effect %s (direto, sem console)", text);   // before: the panel joins what comes after
 	((void (*)(void *, void *))(B + RVA_FN_EFFECT_CMD))(res, reader);
 	((void (*)(void *))(B + RVA_FN_READER_DTOR))(reader);
 	((void (*)(void *))(B + RVA_FN_LEXER_DTOR))(lexer);
@@ -1813,8 +1813,8 @@ static void effect_direct(const char *text)
 	LOG("console: direto: %s%s%.*s", res[0] ? "ok" : "FALHOU", mlen ? ": " : "", (int)(mlen < 200 ? mlen : 200), msg);
 }
 
-// console <texto> : poe o texto na fila do console do jogo, como se fosse digitado (ex.: console event x.1). Sem
-// console (-nographics), `effect <texto>` vai pelo caminho direto
+// console <text> : puts the text in the game's console queue, as if typed (e.g. console event x.1). Without a
+// console (-nographics), `effect <text>` goes through the direct path
 static void cmd_console(const char *text)
 {
 	while (*text == ' ' || *text == '	')
@@ -1823,13 +1823,13 @@ static void cmd_console(const char *text)
 		effect_direct(text + 7);
 		return;
 	}
-	// `event <id>` sem console: trigger_event na hora, fora do laco do jogo, falha no eventmanager (contida, 2026-10-07,
-	// exe+0x356b6ca a partir de 0x278d6b0) depois de o evento rodar. Rodar o efeito do evento direto (`effect ...`)
+	// `event <id>` without a console: trigger_event right away, outside the game loop, fails in the eventmanager (contained, 2026-10-07,
+	// exe+0x356b6ca from 0x278d6b0) after the event runs. Running the event's effect directly (`effect ...`)
 	if (!*text || !rdp(B + RVA_CONSOLE)) {
 		LOG("console: %s", *text ? "console do jogo indisponivel" : "uso: console <comando>");
 		return;
 	}
-	// texto no formato de std::string do jogo, so para leitura (a funcao copia o que precisa)
+	// text in the game's std::string format, read-only (the function copies what it needs)
 	struct { const char *ptr; uint64_t pad; uint64_t size, cap; } s = { text, 0, strlen(text), strlen(text) | 0x10 };
 	((void (*)(void *))(B + RVA_FN_CONSOLE_EXEC))(&s);
 	LOG("console: enviado: %s", text);
@@ -1860,7 +1860,7 @@ static void on_command(const char *line)
 		cmd_console(line + 8);
 		return;
 	}
-	if (!strncmp(line, "efeito ", 7)) {   // efeito de script direto, com ou sem console
+	if (!strncmp(line, "efeito ", 7)) {   // direct script effect, with or without a console
 		effect_direct(line + 7);
 		return;
 	}
@@ -1920,7 +1920,7 @@ static void on_command(const char *line)
 		LOG("mudo %s", mute_chamar ? "ligado: os efeitos dos plugins nao respondem" : "desligado");
 	}
 	else if (!strcmp(a[0], "cmdraw") && n > 3) {
-		// cmdraw <vtable RVA> <vtable2 RVA> <flags> [campo32 ...] : comando simples de campos de 32 bits a partir de +0x20
+		// cmdraw <vtable RVA> <vtable2 RVA> <flags> [field32 ...] : simple command with 32-bit fields starting at +0x20
 		uint32_t f[16];
 		int nf = 0;
 		for (int k = 4; k < n && nf < 16; k++)
@@ -1930,7 +1930,7 @@ static void on_command(const char *line)
 		LOG("cmdraw %s: retorno=%u", a[1], r);
 	}
 	else if (!strcmp(a[0], "rally")) {
-		// lista de donos de pontos de reuniao (estado do jogo +0x1d548) e os pontos de cada um (+0x1d8)
+		// list of rally point owners (game state +0x1d548) and the points of each one (+0x1d8)
 		uint8_t *gs = rdp(rdp(B + RVA_GAME_STATE) + 0xa0);
 		uint8_t *arr = gs ? rdp(gs + 0x1d548) : NULL;
 		int cnt = gs ? (int)rd32(gs + 0x1d554) : 0;
@@ -1963,27 +1963,27 @@ static void on_command(const char *line)
 		cmdlog = n > 1 && !strcmp(a[1], "on") ? 1 : n > 1 && !strcmp(a[1], "all") ? 2 : 0;
 		LOG("cmdlog %s", cmdlog == 2 ? "ligado (todas as threads, comandos de exercito)" : cmdlog ? "ligado" : "desligado");
 	} else if (n >= 2 && (!strcmp(a[0], "last") || (a[0][0] >= '0' && a[0][0] <= '9')))
-		cmd_move(a, n, 0);   // formato antigo: <unidade|last> <provincia> [queue]
+		cmd_move(a, n, 0);   // old format: <unit|last> <province> [queue]
 	else
 		if (!plg_pedido(a, n))
 			LOG("pedido desconhecido: %s", a[0]);
 }
 
-// ---- efeitos de script (registrados pelo carregador; docs/re/notas_efeitos.md) ----
+// ---- script effects (registered by the loader; docs/dll/re/notas_efeitos.md) ----
 #define SCOPE_ARMY 0x1b
 #define ARMY_UNIT  0x124
 
-// variaveis de script (as mesmas funcoes do efeito set_variable)
-#define RVA_FN_SCOPE_VARS   0x3329990   // (escopo*) -> variaveis do objeto do escopo, ou NULL
-#define RVA_FN_VAR_POOL     0x3b970f0   // () -> registro de nomes de variavel
-#define RVA_FN_VAR_NAME     0x3b96da0   // (registro, &numero, &texto)
-#define RVA_FN_VAR_SET      0x3346b30   // (variaveis+8, numero do nome, &valor de 16 bytes, dias; <= 0 = sem prazo)
-#define RVA_FN_VARS_CHANGED 0x33465f0   // (variaveis)
+// script variables (the same functions as the set_variable effect)
+#define RVA_FN_SCOPE_VARS   0x3329990   // (scope*) -> variables of the scope's object, or NULL
+#define RVA_FN_VAR_POOL     0x3b970f0   // () -> variable name registry
+#define RVA_FN_VAR_NAME     0x3b96da0   // (registry, &number, &text)
+#define RVA_FN_VAR_SET      0x3346b30   // (variables+8, name number, &16-byte value, days; <= 0 = no expiry)
+#define RVA_FN_VARS_CHANGED 0x33465f0   // (variables)
 
-// le uma variavel numerica de script do objeto (tipo de escopo + id). Estrutura vista na funcao de gravar:
-// lista em variaveis+8 (base em +8, quantidade em +0x14), entradas de 0x20 bytes: numero do nome em +8,
-// tipo do valor em +0x10 (1 = numero), valor em ponto fixo em +0x18.
-// le a variavel do escopo; *type_out = tipo do valor (1 = numero; outros: sim/nao, escopo...). Devolve se existe
+// reads a numeric script variable of the object (scope type + id). Structure seen in the write function:
+// list at variables+8 (base at +8, count at +0x14), 0x20-byte entries: name number at +8,
+// value type at +0x10 (1 = number), fixed-point value at +0x18.
+// reads the scope's variable; *type_out = value type (1 = number; others: yes/no, scope...). Returns whether it exists
 static int get_var_any(uint16_t scope_type, uint32_t scope_id, const char *name, int64_t *out, uint16_t *type_out);
 
 static int get_var_any(uint16_t scope_type, uint32_t scope_id, const char *name, int64_t *out, uint16_t *type_out)
@@ -2014,7 +2014,7 @@ static int get_var_any(uint16_t scope_type, uint32_t scope_id, const char *name,
 
 #define SCOPE_CHARACTER 0x4
 
-// previsao de combate do jogo entre dois grupos de exercitos (ids de exercito): chance de vitoria do lado A, 0 a 1
+// the game's combat prediction between two groups of armies (army ids): win chance of side A, 0 to 1
 static double predict_armies_raw(uint32_t *ours, int n1, uint32_t *theirs, int n2);
 static double predict_armies(uint32_t *ours, int n1, uint32_t *theirs, int n2)
 {
@@ -2043,16 +2043,16 @@ static double predict_armies_raw(uint32_t *ours, int n1, uint32_t *theirs, int n
 
 #define SCOPE_PROVINCE 0x8
 
-// ---- configuracao global (aba Mods; docs/arquitetura_dll.md, secao 11.4) ----
-// As opcoes da aba Mods sao registradas pelo carregador no grupo "mods" do gerenciador de configuracoes. O nucleo
-// le o valor de cada uma direto do objeto da opcao (docs/re_notas.md, secoes C1, C2b e C4).
+// ---- global configuration (Mods tab; docs/dll/arquitetura_dll.md, section 11.4) ----
+// The Mods tab options are registered by the loader in the "mods" group of the settings manager. The core
+// reads the value of each one directly from the option object (docs/dll/re_notas.md, sections C1, C2b and C4).
 #define RVA_VT_BOOL_SETTING 0x4555700
 #define RVA_VT_INT_SETTING  0x4238228
 #define RVA_VT_REAL_SETTING 0x428cb28
 #define SETTING_NAME        0x78    // std::string
-#define SETTING_VALUE       0xd0    // dado do primeiro campo de valor (+0xc8), guardado no proprio campo
+#define SETTING_VALUE       0xd0    // data of the first value field (+0xc8), stored in the field itself
 
-// std::string do jogo (MSVC): texto no proprio objeto ate 15 letras, senao ponteiro; tamanho em +0x10
+// the game's std::string (MSVC): text inside the object itself up to 15 characters, otherwise a pointer; size at +0x10
 static const char *game_str(uint8_t *s, char *buf, size_t n)
 {
 	uint64_t len = (uint64_t)rd64(s + 0x10), cap = (uint64_t)rd64(s + 0x18);
@@ -2065,7 +2065,7 @@ static const char *game_str(uint8_t *s, char *buf, size_t n)
 	return buf;
 }
 
-// chama fn(nome, valor) para cada opcao do grupo "mods"; devolve quantas
+// calls fn(name, value) for each option of the "mods" group; returns how many
 static int mods_settings(void (*fn)(uint8_t *s, const char *name, double v, void *arg), void *arg)
 {
 	uint8_t *mgr = rdp(B + RVA_SETTINGS_MANAGER), *groups = mgr ? rdp(mgr + 0x18) : NULL;
@@ -2107,11 +2107,11 @@ static void cfg_list_one(uint8_t *s, const char *name, double v, void *arg)
 	LOG("cfg: %s = %g", name, v);
 }
 
-// cfg <nome> <valor>: muda a opcao pelo mesmo caminho da interface (o jogo grava no pdx_settings.txt quando salvar
-// as configuracoes)
-#define RVA_FN_BOOL_SET 0x3b46990   // (opcao, valor, 1)
-#define RVA_FN_INT_SET  0xa89250    // (opcao, &valor, 0)
-#define RVA_FN_REAL_SET 0xa89430    // (opcao, &valor, 0)
+// cfg <name> <value>: changes the option through the same path as the interface (the game writes to pdx_settings.txt when it saves
+// the settings)
+#define RVA_FN_BOOL_SET 0x3b46990   // (option, value, 1)
+#define RVA_FN_INT_SET  0xa89250    // (option, &value, 0)
+#define RVA_FN_REAL_SET 0xa89430    // (option, &value, 0)
 struct cfg_set { const char *name; double v; int done; };
 
 static void cfg_set_one(uint8_t *s, const char *name, double v, void *arg)
@@ -2143,19 +2143,19 @@ static void cmd_cfg(char **a, int n)
 	LOG("cfg: %d opcao(oes) na aba Mods", mods_settings(cfg_list_one, NULL));
 }
 
-// ---- aba Mods com um botao por mod (prova C5; docs/arquitetura_dll.md, secao 11.6) ----
-// O carregador monta a aba Mods com todas as opcoes (secao "configuracoes dos mods" do ar_proxy.c). O nucleo troca
-// essa aba por uma lista de botoes, um por mod (CPdxCallbackSetting); o clique mostra so as opcoes daquele mod, com
-// um botao "Voltar". Um vigia (thread) percebe quando a aba do carregador volta (janela remontada, config recarregada)
-// e troca de novo. Enderecos em docs/re_notas.md, secoes C2b e C5.
+// ---- Mods tab with one button per mod (proof C5; docs/dll/arquitetura_dll.md, section 11.6) ----
+// The loader builds the Mods tab with all options (section "configuracoes dos mods" of ar_proxy.c). The core replaces
+// that tab with a list of buttons, one per mod (CPdxCallbackSetting); the click shows only that mod's options, with
+// a "Voltar" (Back) button. A watcher (thread) notices when the loader's tab comes back (window rebuilt, config reloaded)
+// and swaps it again. Addresses in docs/dll/re_notas.md, sections C2b and C5.
 #define RVA_VT_SETTINGS_WIN   0x44c3348   // CJominiSettingsWindow
 #define RVA_VT_CALLBACK_SET   0x4555d48   // CPdxCallbackSetting
-#define RVA_FN_CALLBACK_SET   0x3b4bf70   // (obj 0x138, &nome, &chave, &std::function<void()>, 0)
+#define RVA_FN_CALLBACK_SET   0x3b4bf70   // (obj 0x138, &name, &key, &std::function<void()>, 0)
 #define RVA_VT_FUNC_PTR       0x408a450   // std::_Func_impl_no_alloc<void (*)(void), void>
 #define RVA_FN_NOP            0x7e6490    // ret
-#define RVA_FN_PAGE_CLICK     0x32d9cf0   // SettingsPage.OnClick(pagina): seleciona e redesenha
-#define WIN_SELECTED          0xd0        // pagina selecionada
-#define PAGE_NAME             0x10        // std::string com o nome traduzido
+#define RVA_FN_PAGE_CLICK     0x32d9cf0   // SettingsPage.OnClick(page): selects and redraws
+#define WIN_SELECTED          0xd0        // selected page
+#define PAGE_NAME             0x10        // std::string with the translated name
 #define PAGE_WINDOW           0x08
 #define MODS_MAX              8
 
@@ -2166,15 +2166,15 @@ static struct {
 	FILETIME t;
 	int nopt;
 	char opt[64][96], cat[64][96];
-	uint8_t *button;   // CPdxCallbackSetting registrada
+	uint8_t *button;   // registered CPdxCallbackSetting
 } mods[MODS_MAX];
 static int nmods, mods_sel = -1;
-static uint8_t *mods_page;          // pagina Mods montada pelo nucleo
-static uint8_t *mods_voltar;        // botao "Voltar"
+static uint8_t *mods_page;          // Mods page built by the core
+static uint8_t *mods_voltar;        // "Voltar" (Back) button
 static volatile LONG mods_run, mods_pending;
 static HANDLE mods_thread;
 
-// configuracao dos mods ativos (o mesmo caminho do carregador: dlc_load.json -> .mod -> plugin/config.txt)
+// configuration of the active mods (the same path as the loader: dlc_load.json -> .mod -> plugin/config.txt)
 static char *mods_read(const char *path)
 {
 	FILE *f = fopen(path, "rb");
@@ -2191,8 +2191,8 @@ static char *mods_read(const char *path)
 	return b;
 }
 
-// `chave="valor"` no comeco de uma linha de `t` (a busca simples por `path="` achava antes o `replace_path="`):
-// devolve o valor em out, ou 0. `de` = onde continuar procurando (outra ocorrencia), pode ser NULL
+// `key="value"` at the start of a line of `t` (the simple search for `path="` used to find `replace_path="` first):
+// returns the value in out, or 0. `de` = where to continue searching (another occurrence), may be NULL
 static int desc_valor(const char *t, const char *chave, char *out, size_t cap, const char **de)
 {
 	size_t kn = strlen(chave);
@@ -2212,7 +2212,7 @@ static int desc_valor(const char *t, const char *chave, char *out, size_t cap, c
 	return 0;
 }
 
-// mods ativos na ordem do dlc_load.json (enabled_mods): pasta (path= do .mod) e o texto do .mod
+// active mods in dlc_load.json order (enabled_mods): folder (path= of the .mod) and the .mod text
 static int mod_each(void (*fn)(const char *dir, const char *desc, void *arg), void *arg)
 {
 	char docs[MAX_PATH] = "", user[MAX_PATH + 64], p[MAX_PATH * 2], v[MAX_PATH], dir[MAX_PATH * 2];
@@ -2254,7 +2254,7 @@ static void mod_dirs_um(const char *dir, const char *desc, void *arg)
 		snprintf(m->dirs[m->n++], MAX_PATH, "%s", dir);
 }
 
-// pastas dos mods ativos: dlc_load.json (enabled_mods) -> cada .mod -> path=
+// folders of the active mods: dlc_load.json (enabled_mods) -> each .mod -> path=
 static int mod_dirs(char (*dirs)[MAX_PATH], int max)
 {
 	struct mod_dirs_arg m = { dirs, 0, max };
@@ -2262,9 +2262,9 @@ static int mod_dirs(char (*dirs)[MAX_PATH], int max)
 	return m.n;
 }
 
-// arquivos .txt de uma pasta do jogo (`rel`, ex. "common/governments") como o jogo os ve com os mods ativos: o jogo
-// base e cada mod na ordem do dlc_load.json; arquivo de mesmo nome substitui o anterior; replace_path do mod descarta
-// os anteriores daquela pasta. Mesma ordem do jogo (por nome de arquivo)
+// .txt files of a game folder (`rel`, e.g. "common/governments") as the game sees them with the active mods: the base
+// game and each mod in dlc_load.json order; a file with the same name replaces the previous one; the mod's replace_path discards
+// the previous ones of that folder. Same order as the game (by file name)
 #define GF_MAX 512
 static struct { char nome[MAX_PATH]; char cam[MAX_PATH * 2]; } gf[GF_MAX];
 static int gf_n;
@@ -2329,7 +2329,7 @@ static int api_game_files(const char *rel, char *out, int cap)
 	snprintf(base, sizeof base, "%s..\\game", H->dir);
 	gf_pasta(base);
 	mod_each(gf_mod, NULL);
-	qsort(gf, (size_t)gf_n, sizeof gf[0], gf_cmp);   // nome e o primeiro campo
+	qsort(gf, (size_t)gf_n, sizeof gf[0], gf_cmp);   // name is the first field
 	int k = 0;
 	if (cap > 0)
 		out[0] = 0;
@@ -2380,7 +2380,7 @@ static void mods_load(void)
 		if (bs > bn)
 			bn = bs;
 		int mi = nmods;
-		uint8_t *button = mods[mi].button;   // registrada antes: continua valendo
+		uint8_t *button = mods[mi].button;   // registered before: still valid
 		memset(&mods[mi], 0, sizeof mods[mi]);
 		mods[mi].button = button;
 		snprintf(mods[mi].path, sizeof mods[mi].path, "%s", p);
@@ -2413,8 +2413,8 @@ static void mods_load(void)
 	}
 }
 
-// janela de configuracoes: o carregador guarda o ponteiro (cfg_win) na area de dados dele; procura ali um ponteiro
-// para um objeto com a vtable da CJominiSettingsWindow
+// settings window: the loader keeps the pointer (cfg_win) in its data area; search there for a pointer
+// to an object with the CJominiSettingsWindow vtable
 static uint8_t *mods_window(void)
 {
 	HMODULE m = NULL;
@@ -2441,12 +2441,12 @@ static int is_mods_page(uint8_t *pg)
 	return pg && (pg == mods_page || !strcmp(game_str(pg + PAGE_NAME, buf, sizeof buf), "Mods"));
 }
 
-// botao: std::function<void()> com ponteiro de funcao (o mesmo tipo das opcoes do jogo, ex.: reset_reactive_advice)
+// button: std::function<void()> with a function pointer (the same type as the game's options, e.g. reset_reactive_advice)
 static void mods_click(int k)
 {
 	char line[32];
 	snprintf(line, sizeof line, "mods_sel %d", k);
-	H->run_main(line);   // fora do clique da interface
+	H->run_main(line);   // outside the interface click
 }
 static void mods_cb_back(void) { mods_click(-1); }
 #define MODS_CB(n) static void mods_cb##n(void) { mods_click(n); }
@@ -2454,7 +2454,7 @@ MODS_CB(0) MODS_CB(1) MODS_CB(2) MODS_CB(3) MODS_CB(4) MODS_CB(5) MODS_CB(6) MOD
 static void (*const mods_cbs[MODS_MAX])(void) = { mods_cb0, mods_cb1, mods_cb2, mods_cb3,
                                                   mods_cb4, mods_cb5, mods_cb6, mods_cb7 };
 
-// a funcao chamada pelo botao fica em opcao+0xf8 (std::function; impl no proprio buffer, ponteiro de funcao em +8)
+// the function called by the button is at option+0xf8 (std::function; impl in its own buffer, function pointer at +8)
 static void button_set_fn(uint8_t *obj, void (*fn)(void))
 {
 	uint8_t *impl = rdp(obj + 0xf8 + 0x38);
@@ -2462,7 +2462,7 @@ static void button_set_fn(uint8_t *obj, void (*fn)(void))
 		*(void **)(impl + 8) = (void *)fn;
 }
 
-// acha uma opcao do grupo "mods" pelo nome (registrada antes, ex.: por um nucleo anterior)
+// finds an option of the "mods" group by name (registered before, e.g. by a previous core)
 static uint8_t *mods_find_setting(const char *name)
 {
 	uint8_t *mgr = rdp(B + RVA_SETTINGS_MANAGER), *groups = mgr ? rdp(mgr + 0x18) : NULL;
@@ -2486,7 +2486,7 @@ static uint8_t *mods_button(const char *name, const char *key, void (*fn)(void))
 {
 	uint8_t *s = mods_find_setting(name);
 	if (s) {
-		button_set_fn(s, fn);   // nucleo recarregado: a funcao antiga saiu da memoria
+		button_set_fn(s, fn);   // core reloaded: the old function is gone from memory
 		return s;
 	}
 	void *mgr = rdp(B + RVA_SETTINGS_MANAGER);
@@ -2538,7 +2538,7 @@ static int mods_layout(char *out, size_t cap)
 	return n < cap ? (int)n : 0;
 }
 
-// troca a(s) aba(s) Mods da janela pela montada pelo nucleo (thread principal)
+// replaces the window's Mods tab(s) with the one built by the core (main thread)
 static void mods_show(int sel, int select)
 {
 	uint8_t *win = mods_window();
@@ -2546,7 +2546,7 @@ static void mods_show(int sel, int select)
 		LOG("mods: janela de configuracoes nao encontrada");
 		return;
 	}
-	mods_load();   // a cada troca: o config.txt pode ter mudado
+	mods_load();   // on every swap: config.txt may have changed
 	int total = 0;
 	for (int i = 0; i < nmods; i++)
 		total += mods[i].nopt;
@@ -2567,9 +2567,9 @@ static void mods_show(int sel, int select)
 			count--;
 		} else
 			i++;
-	*(int32_t *)(win + WIN_PAGES + 0xc) = count;   // a memoria das paginas tiradas nao e liberada
+	*(int32_t *)(win + WIN_PAGES + 0xc) = count;   // the memory of the removed pages is not freed
 	if (!total) {
-		// nenhum mod com opcao (C7): sem aba Mods
+		// no mod with options (C7): no Mods tab
 		if (was_selected && count > 0)
 			((uint8_t (*)(void *))(B + RVA_FN_PAGE_CLICK))(pages[0]);
 		mods_page = NULL;
@@ -2612,7 +2612,7 @@ static void mods_show(int sel, int select)
 	LOG("mods: aba Mods trocada (%s), %d pagina(s)", sel < 0 ? "lista de mods" : mods[sel].name, after);
 }
 
-// vigia: a aba do carregador volta quando a janela e remontada ou a configuracao recarregada
+// watcher: the loader's tab comes back when the window is rebuilt or the configuration reloaded
 static DWORD WINAPI mods_watch(void *unused)
 {
 	while (mods_run) {
@@ -2625,7 +2625,7 @@ static DWORD WINAPI mods_watch(void *unused)
 			WIN32_FILE_ATTRIBUTE_DATA fa;
 			if (GetFileAttributesExA(mods[i].path, GetFileExInfoStandard, &fa) &&
 			    CompareFileTime(&fa.ftLastWriteTime, &mods[i].t) != 0)
-				foreign = 1;   // config.txt mudou: refaz (a aba do carregador tambem vem, logo em seguida)
+				foreign = 1;   // config.txt changed: rebuild (the loader's tab also comes, right after)
 		}
 		uint8_t **pages = (uint8_t **)rdp(win + WIN_PAGES);
 		for (int i = 0; pages && i < count && i < 64; i++) {
@@ -2635,7 +2635,7 @@ static DWORD WINAPI mods_watch(void *unused)
 		}
 		if (foreign) {
 			InterlockedExchange(&mods_pending, 1);
-			H->run_main("mods_sel -2");   // -2 = mantem a selecao atual
+			H->run_main("mods_sel -2");   // -2 = keep the current selection
 		}
 	}
 	return 0;
@@ -2663,7 +2663,7 @@ static void mods_stop(void)
 		WaitForSingleObject(mods_thread, 2000);
 		CloseHandle(mods_thread);
 	}
-	// as funcoes dos botoes saem da memoria com o nucleo: apontam para um ret do jogo ate o proximo nucleo
+	// the button functions leave memory with the core: they point to a game ret until the next core
 	for (int i = 0; i < nmods; i++)
 		if (mods[i].button)
 			button_set_fn(mods[i].button, (void (*)(void))(B + RVA_FN_NOP));
@@ -2705,11 +2705,11 @@ static void cmd_record(char **a, int n)
 		fflush(rec_file);
 }
 
-// mapa <unidade|last> <raio px> <nome>: grafo das provincias ao redor da unidade, pelo proprio pathfinder do jogo
-// (docs/simulador.md, SIM1b), em <binaries>\ck3\mapa\<nome>.jsonl. Nos ("no"): posicao, mar, tempo da unidade ate la,
-// saque disponivel, saque total exigido e progresso por dia do exercito dela. Arestas ("aresta"): pares consecutivos
-// dos caminhos achados, com o tempo exato de uma ponta a outra (ponto fixo, 100000 = 1 dia). Roda na thread principal
-// e trava o jogo alguns segundos: usar com o jogo pausado.
+// mapa <unit|last> <radius px> <name>: graph of the provinces around the unit, via the game's own pathfinder
+// (auto_raid docs/simulador.md, SIM1b), in <binaries>\ck3\mapa\<nome>.jsonl. Nodes ("no"): position, sea, the unit's travel time there,
+// available loot, total loot required and progress per day of its army. Edges ("aresta"): consecutive pairs
+// of the paths found, with the exact time from one end to the other (fixed point, 100000 = 1 day). Runs on the main thread
+// and freezes the game for a few seconds: use with the game paused.
 static uint32_t map_edge[32768][2];
 static int map_ne;
 
@@ -2797,7 +2797,7 @@ static void cmd_map(char **a, int n)
 		nodes++;
 		map_add_path(prov_id(start), pp, pn < 256 ? pn : 256);
 	}
-	// varias origens: caminho de cada provincia ate as vizinhas em ate `neigh` pixels (traz as ligacoes laterais)
+	// multiple origins: path from each province to its neighbors within `neigh` pixels (brings in the lateral links)
 	int pairs = 0;
 	for (int i = 0; neigh > 0 && i < nodes && i < 4096; i++)
 		for (int j = 0; j < nodes && j < 4096; j++) {
@@ -2823,12 +2823,12 @@ static void cmd_map(char **a, int n)
 	    (double)(t1.QuadPart - t0.QuadPart) / (double)fq.QuadPart);
 }
 
-// ---- tabela de ETA (docs/ia_reativa.md, ponte de extracao): o tempo exato do jogo (pathfinder + tempo de viagem,
-// com a velocidade da unidade no lugar onde ela esta) de cada provincia do raio ate as provincias a ate `raio_dest` px
-// dela. Em blocos: `tabela <unidade> <raio> <nome> <de> <ate> [raio_dest]` calcula as origens de indice [de, ate) (na
-// ordem dos ids no raio) e acrescenta ao arquivo; com de = 0 recomeca o arquivo. Binario: por origem, uint32 id,
-// uint32 m, m x (uint32 destino, int32 milesimos de dia; -1 sem caminho). O jogo fica parado enquanto o bloco roda:
-// mandar poucas origens por pedido. Rodar com a unidade dentro e fora do reino (o bonus de area amiga depende dela).
+// ---- ETA table (auto_raid docs/ia_reativa.md, extraction bridge): the game's exact time (pathfinder + travel time,
+// with the unit's speed at the place where it is) from each province in the radius to the provinces within `raio_dest` px
+// of it. In blocks: `tabela <unit> <radius> <name> <from> <to> [raio_dest]` computes the origins with index [from, to) (in
+// the order of the ids in the radius) and appends to the file; with from = 0 it restarts the file. Binary: per origin, uint32 id,
+// uint32 m, m x (uint32 destination, int32 thousandths of a day; -1 without a path). The game stays frozen while the block runs:
+// send few origins per request. Run with the unit inside and outside the realm (the friendly territory bonus depends on it).
 static void cmd_table(char **a, int n)
 {
 	if (n < 6) {
@@ -2879,7 +2879,7 @@ static void cmd_table(char **a, int n)
 	for (uint32_t i = 0, k = 0; i < nn; i++) {
 		int dx = xy[i][0] - hx, dy = xy[i][1] - hy;
 		if ((int64_t)dx * dx + (int64_t)dy * dy > (int64_t)radius * radius)
-			continue;   // origem fora do raio (os destinos vao ate raio + raio_dest)
+			continue;   // origin outside the radius (the destinations go up to radius + raio_dest)
 		if ((int)k++ < i0 || (int)k > i1)
 			continue;
 		uint32_t m = 0;
@@ -2905,15 +2905,15 @@ static void cmd_table(char **a, int n)
 	    (double)(t1.QuadPart - t0.QuadPart) / (double)fq.QuadPart);
 }
 
-// ---- expressoes de script avaliadas pelo proprio jogo (A3; docs/re_notas.md, secao A3) ----
-// `expr <texto>`: o jogo le o texto como o valor de um efeito (um add_loot criado pela fabrica do jogo, escopo
-// exercito) e guarda; a cada auto_raid_ping_livre num exercito, o nucleo avalia a expressao com o contexto do script
-// daquele momento e registra no log ao lado do valor que o script passou. Prova: o C pode pedir ao jogo qualquer
-// gatilho ou valor de script (army_supply, is_at_war, ar_em_casa...) sem achar campos na memoria.
-#define RVA_FN_ADD_LOOT_NEW 0x2e81070   // fabrica do add_loot: (entrada; numero do nome em +0x10) -> objeto 0x168
-#define RVA_FN_VALUE        0x9698b0    // (objeto+0x60, &saida, contexto, [contexto+0x28], objeto+0x10)
+// ---- script expressions evaluated by the game itself (A3; docs/dll/re_notas.md, section A3) ----
+// `expr <text>`: the game reads the text as the value of an effect (an add_loot created by the game's factory, army
+// scope) and stores it; on each auto_raid_ping_livre on an army, the core evaluates the expression with the script context
+// of that moment and logs it next to the value the script passed. Proof: C can ask the game for any
+// script trigger or value (army_supply, is_at_war, ar_em_casa...) without finding fields in memory.
+#define RVA_FN_ADD_LOOT_NEW 0x2e81070   // add_loot factory: (entry; name number at +0x10) -> 0x168 object
+#define RVA_FN_VALUE        0x9698b0    // (object+0x60, &out, context, [context+0x28], object+0x10)
 #define SCOPE_ARMY_TYPE     0x1b
-#define RVA_FN_READ_STMT    0x3b90120   // leitor: le `chave =` e para no valor (o laco do leitor chama antes de cada valor)
+#define RVA_FN_READ_STMT    0x3b90120   // reader: reads `key =` and stops at the value (the reader loop calls it before each value)
 
 static uint8_t *expr_obj;
 static char expr_texto[256];
@@ -2940,8 +2940,8 @@ static void cmd_expr(const char *texto)
 	((void (*)(void *, void *, int))(B + RVA_FN_LEXER_STREAM))(lexer, mem, 0);
 	*(void **)lexer = B + RVA_VT_TEXT_LEXER;
 	((void (*)(void *, void *))(B + RVA_FN_READER))(reader, lexer);
-	((void (*)(void *))(B + RVA_FN_READ_STMT))(reader);   // `valor =`
-	// metodo 1 do efeito: le o valor (repassa ao objeto do valor em +0x60), com o tipo de escopo de entrada
+	((void (*)(void *))(B + RVA_FN_READ_STMT))(reader);   // `value =`
+	// effect method 1: reads the value (passes it on to the value object at +0x60), with the input scope type
 	((void (*)(void *, void *, uint16_t))((*(void ***)obj)[1]))(obj, reader, SCOPE_ARMY_TYPE);
 	((void (*)(void *))(B + RVA_FN_READER_DTOR))(reader);
 	((void (*)(void *))(B + RVA_FN_LEXER_DTOR))(lexer);
@@ -2950,9 +2950,9 @@ static void cmd_expr(const char *texto)
 	LOG("expr: '%s' lido (objeto %p); avalia no proximo ck3_custom_ping em exercito", texto, obj);
 }
 
-// expressao lida para um tipo de escopo, guardada pelo texto (A3, SIM2b)
-// (2026-10-07: texto sem limite de tamanho e 1024 entradas; antes 240 caracteres e 96, e um texto maior ou alem das
-// 96 era lido de novo a cada chamada)
+// expression read for a scope type, stored by its text (A3, SIM2b)
+// (2026-10-07: text with no size limit and 1024 entries; before, 240 characters and 96, and a longer text or one beyond the
+// 96 was read again on every call)
 #define EXPR_MAX 1024
 static struct { char *texto; uint16_t st; uint8_t *obj; } expr_cache[EXPR_MAX];
 static int expr_n;
@@ -2996,8 +2996,8 @@ static uint8_t *expr_ler(const char *texto, uint16_t st)
 	return obj;
 }
 
-// avalia `texto` no escopo (st, id) com o contexto de um efeito em execucao: copia o contexto e troca o escopo atual
-// ([contexto]); root e o resto continuam os do efeito
+// evaluates `texto` in scope (st, id) with the context of a running effect: copies the context and swaps the current scope
+// ([context]); root and the rest stay those of the effect
 #define CTX_QW 16
 static int expr_valor(void **ctx, const char *texto, uint16_t st, uint32_t id, int64_t *out)
 {
@@ -3013,8 +3013,8 @@ static int expr_valor(void **ctx, const char *texto, uint16_t st, uint32_t id, i
 	return 1;
 }
 
-// prova SIM2b: `ctxprova <tipo> <id> <texto>` avalia no proximo auto_raid_ping_livre (qualquer escopo) e mostra o
-// contexto
+// proof SIM2b: `ctxprova <type> <id> <text>` evaluates on the next auto_raid_ping_livre (any scope) and shows the
+// context
 static struct { int on; uint16_t st; uint32_t id; char texto[240]; } ctxprova;
 
 static void ctxprova_rodar(void **ctx, uint32_t scope_type, uint32_t scope_id)
@@ -3060,7 +3060,7 @@ static void expr_avaliar(void **ctx, uint32_t scope_type, uint32_t scope_id, int
 	    (double)value / FIXED_ONE);
 }
 
-// ---- variaveis de script por (tipo de escopo, id) ----
+// ---- script variables by (scope type, id) ----
 typedef struct { uint16_t type, zero; uint32_t pad; uint32_t id, pad2; } scope_ref;
 
 static int32_t var_num(const char *name)
@@ -3073,7 +3073,7 @@ static int32_t var_num(const char *name)
 	return id;
 }
 
-// set_variable = { name value days } no objeto (tipo de escopo, id); dias <= 0 = sem prazo
+// set_variable = { name value days } on the object (scope type, id); days <= 0 = no expiry
 static int var_set(uint16_t st, uint32_t id, const char *name, int64_t fixed, int dias)
 {
 	scope_ref sc = { st, 0, 0, id, 0 };
@@ -3087,8 +3087,8 @@ static int var_set(uint16_t st, uint32_t id, const char *name, int64_t fixed, in
 	return 1;
 }
 
-// remove_variable (CJominiRemoveVariableEffect, funcao 22 em 0x3393c00)
-#define RVA_FN_VAR_REMOVE 0x3345af0   // (variaveis, numero do nome)
+// remove_variable (CJominiRemoveVariableEffect, function 22 at 0x3393c00)
+#define RVA_FN_VAR_REMOVE 0x3345af0   // (variables, name number)
 static int var_del(uint16_t st, uint32_t id, const char *name)
 {
 	scope_ref sc = { st, 0, 0, id, 0 };
@@ -3100,7 +3100,7 @@ static int var_del(uint16_t st, uint32_t id, const char *name)
 	return 1;
 }
 
-// `var <tipo> <id> <nome> [set <valor> [dias] | del]`: le (tipo, valor e prazo cru) ou muda uma variavel
+// `var <type> <id> <name> [set <value> [days] | del]`: reads (type, value and raw expiry) or changes a variable
 static void cmd_var(char **a, int n)
 {
 	if (n < 4) {
@@ -3129,12 +3129,12 @@ static void cmd_var(char **a, int n)
 	LOG("var %s em 0x%x/%u: nao existe", a[3], st, id);
 }
 
-// ---- plugins de mod em fonte C (A2; docs/arquitetura_dll.md, secoes 4 a 7) ----
-// Cada mod ativo com `plugin/plugin.txt` tem um plugin: os `.c` listados em `fonte` sao compilados em memoria pelo
-// TinyCC (libtcc embutido), sem a biblioteca do sistema (-nostdlib): o plugin so enxerga a ck3_api e as funcoes de
-// texto e memoria liberadas abaixo. Em -debug_mode o nucleo confere a data dos .c/.h da pasta e recompila; o plugin
-// antigo continua se a compilacao falhar. Os efeitos de script continuam registrados pelo carregador; cada efeito vai
-// ao primeiro plugin que o trata.
+// ---- mod plugins in C source (A2; docs/dll/arquitetura_dll.md, sections 4 to 7) ----
+// Each active mod with `plugin/plugin.txt` has a plugin: the `.c` files listed in `fonte` are compiled in memory by
+// TinyCC (embedded libtcc), without the system library (-nostdlib): the plugin only sees ck3_api and the
+// text and memory functions allowed below. In -debug_mode the core checks the dates of the folder's .c/.h and recompiles; the old
+// plugin keeps running if the compilation fails. Script effects stay registered by the loader; each effect goes
+// to the first plugin that handles it.
 #include "libtcc.h"
 #include "ck3_api.h"
 
@@ -3143,9 +3143,9 @@ static struct {
 	char name[64], dir[MAX_PATH], moddir[MAX_PATH];
 	char src[8][64];
 	int nsrc;
-	char efeitos[32][48];   // efeitos declarados no plugin.txt: o nucleo entrega cada um ao seu plugin
+	char efeitos[32][48];   // effects declared in plugin.txt: the core hands each one to its plugin
 	int nefeitos;
-	FILETIME fontes, gatilhos;   // .c/.h compilados; gatilhos do mod quando as expressoes foram lidas
+	FILETIME fontes, gatilhos;   // compiled .c/.h; the mod's triggers when the expressions were read
 	TCCState *s;
 	const ck3_plugin *pl;
 } plg[PLG_MAX];
@@ -3154,10 +3154,10 @@ static SRWLOCK plg_lock = SRWLOCK_INIT;
 static volatile LONG plg_compilando;
 static ULONGLONG plg_visto;
 
-// ---- ck3_api: o jogo visto por ids ----
+// ---- ck3_api: the game seen through ids ----
 static void api_log(const char *fmt, ...)
 {
-	if (!debug_mode)   // producao: o log dos plugins fica so em -debug_mode
+	if (!debug_mode)   // release: the plugins' log only exists in -debug_mode
 		return;
 	char b[2048];
 	va_list ap;
@@ -3227,8 +3227,8 @@ static uint32_t api_army_unit(uint32_t army)
 	uint8_t *a = army_obj(army);
 	return a ? rd32(a + ARMY_UNIT) : 0;
 }
-// (api 4) baixas por atrito de condado ao passar de `from` para `to` (provincias vizinhas no caminho); 0 = nao cobra,
-// -1 = exercito, dono ou provincia invalido
+// (api 4) county attrition casualties when moving from `from` to `to` (neighboring provinces on the path); 0 = no charge,
+// -1 = invalid army, owner or province
 static int api_county_attrition(uint32_t army, uint32_t from, uint32_t to)
 {
 	uint8_t *a = army_obj(army), *u = a ? unit_by_id(rd32(a + ARMY_UNIT)) : NULL;
@@ -3242,7 +3242,7 @@ static int api_county_attrition(uint32_t army, uint32_t from, uint32_t to)
 		return 0;
 	return ((int (*)(void *, void *))(B + RVA_FN_COUNTY_LOSS))(a, NULL);
 }
-// (api 4) caminho de `from` ate `to` com a velocidade da unidade (provincias depois de `from`); devolve o tamanho
+// (api 4) path from `from` to `to` at the unit's speed (provinces after `from`); returns the size
 static int api_path_from(uint32_t unit, uint32_t from, uint32_t to, uint32_t *out, int max)
 {
 	uint8_t *u = unit_by_id(unit);
@@ -3376,7 +3376,7 @@ static ck3_api API = {
 	api_expr, api_cfg_each, api_run_main, api_game_files, api_file_read, api_file_free, api_file_write,
 	api_county_attrition, api_path_from, api_combat_info, api_combat_hypo, api_debug_mode };
 
-// ---- achar, compilar e trocar ----
+// ---- find, compile and swap ----
 static FILETIME mais_novo(const char *dir, const char *const *pads, int npads)
 {
 	FILETIME t = { 0, 0 };
@@ -3481,7 +3481,7 @@ static int plg_compilar(int i)
 	const ck3_plugin *pl = NULL;
 	if (ok && tcc_add_file(s, p) >= 0 && tcc_relocate(s) >= 0 && (start = tcc_get_symbol(s, "ck3_plugin_start")))
 		pl = start(&API);
-	plg[i].fontes = ft;   // nao tenta de novo ate o fonte mudar
+	plg[i].fontes = ft;   // does not try again until the source changes
 	if (!pl) {
 		tcc_delete(s);
 		LOG("plugin %s: NAO compilou; %s", plg[i].name, plg[i].pl ? "o anterior continua" : "sem plugin");
@@ -3500,8 +3500,8 @@ static int plg_compilar(int i)
 	return 1;
 }
 
-// a cada ~1 s (em -debug_mode): fonte mudou = recompila; gatilhos do mod mudaram = as expressoes guardadas sao lidas
-// de novo (o jogo rele o arquivo; espera 5 s)
+// every ~1 s (in -debug_mode): source changed = recompile; the mod's triggers changed = the stored expressions are read
+// again (the game re-reads the file; wait 5 s)
 static void plg_conferir(void)
 {
 	ULONGLONG agora = GetTickCount64();
@@ -3556,8 +3556,8 @@ static void on_effect(const char *name, uint32_t scope_type, uint32_t scope_id, 
 {
 	prov_cache();
 	if (!strcmp(name, "ck3_custom_ping")) {
-		// efeito do proprio nucleo, registrado pelo carregador (qualquer escopo): provas A3 e SIM2b (pedidos expr e
-		// ctxprova) e conferencia de que o nucleo responde
+		// the core's own effect, registered by the loader (any scope): proofs A3 and SIM2b (requests expr and
+		// ctxprova) and a check that the core responds
 		expr_avaliar(ctx, scope_type, scope_id, value);
 		LOG("efeito ck3_custom_ping: escopo tipo=0x%x id=%u valor=%.3f thread=%u (%s)", scope_type, scope_id,
 		    (double)value / FIXED_ONE, thread, thread == H->main_thread ? "principal" : "OUTRA");
@@ -3616,10 +3616,10 @@ __declspec(dllexport) void ar_stop(void)
 		plg[i].pl = NULL;
 	}
 	if (rec_file) {
-		fclose(rec_file);   // o proximo nucleo comeca parado; `gravar on` de novo continua no mesmo arquivo
+		fclose(rec_file);   // the next core starts stopped; `gravar on` again continues in the same file
 		rec_file = NULL;
 	}
-	// a busca de memoria roda em thread propria: o codigo dela nao pode sair da memoria antes de ela terminar
+	// the memory search runs on its own thread: its code must not leave memory before it finishes
 	for (int i = 0; i < 1200 && find_busy; i++)
 		Sleep(100);
 }

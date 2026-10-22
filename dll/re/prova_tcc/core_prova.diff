@@ -8,13 +8,13 @@
 +#include "libtcc.h"
 +#include "../ck3_api.h"
  
- // comandos
+ // commands
  #define RVA_VT_MOVE_UNIT   0x432bef0
 @@ -1202,8 +1205,74 @@
  	LOG("console: enviado: %s", text);
  }
  
-+// ---- prova do plugin em fonte C (docs/arquitetura_dll.md, 7c) ----
++// ---- proof of the C source plugin (docs/arquitetura_dll.md, 7c) ----
 +static int set_scope_var(void **ctx, const char *name, int64_t fixed);
 +static TCCState *tcc_s;
 +static const ck3_plugin *tcc_pl;

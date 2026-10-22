@@ -1,9 +1,9 @@
-# C1 (docs/arquitetura_dll.md, secao 11.6): registro de configuracoes do motor (somente leitura)
+# C1 (docs/dll/arquitetura_dll.md, section 11.6): engine settings registry (read-only)
 from relib import *
 import re
 
 def col_class(vt):
-    """nome da classe pelo RTTI (Complete Object Locator logo antes da vtable)"""
+    """class name from RTTI (Complete Object Locator right before the vtable)"""
     o = rva2off(vt - 8)
     if o is None:
         return None

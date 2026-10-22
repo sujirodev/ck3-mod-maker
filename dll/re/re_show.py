@@ -1,4 +1,4 @@
-# desmontagem anotada (strings e destinos de dados): python re_show.py <rva> [max]
+# annotated disassembly (strings and data targets): python re_show.py <rva> [max]
 import sys,re as _re; sys.path.insert(0,'.')
 from relib import *
 a=int(sys.argv[1],16); n=int(sys.argv[2]) if len(sys.argv)>2 else 400

@@ -1,4 +1,4 @@
-// prova no jogo: plugin em C puro, compilado pelo nucleo com o libtcc
+// in-game proof: plugin in plain C, compiled by the core with libtcc
 #include "../ck3_api.h"
 #define VERSAO 1
 static const ck3_api *api;

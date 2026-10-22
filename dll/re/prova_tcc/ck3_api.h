@@ -1,4 +1,4 @@
-// prova: interface minima entre o nucleo e o plugin compilado pelo libtcc
+// proof: minimal interface between the core and the plugin compiled by libtcc
 #include <stdint.h>
 typedef struct ck3_api {
 	uint32_t version;

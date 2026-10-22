@@ -1,4 +1,4 @@
-// prova: plugin do mod em C puro, compilado em memoria pelo carregador
+// proof: mod plugin in plain C, compiled in memory by the loader
 #include "ck3_api.h"
 #include "bench.c"
 #define VERSAO 1
@@ -13,7 +13,7 @@ static int iguais(const char *a, const char *b)
 static void on_effect(const char *name, uint32_t scope_type, uint32_t scope_id, int64_t value, void *ctx,
                       uint32_t thread)
 {
-	// extensoes do GCC usadas no ar_core.c
+	// GCC extensions used in ar_core.c
 	struct { uint32_t prov; int days; } cand[2] = { { 1, 5 }, { 2, 3 } };
 	__typeof__(cand[0]) t = cand[0];
 	cand[0] = cand[1];

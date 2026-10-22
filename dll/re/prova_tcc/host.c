@@ -1,4 +1,4 @@
-// prova: hospedeiro com o libtcc embutido (faz o papel do carregador)
+// proof: host with libtcc embedded (plays the role of the loader)
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -32,7 +32,7 @@ static double now_ms(void)
 	return (double)c.QuadPart * 1000.0 / (double)f.QuadPart;
 }
 
-// compila o plugin; NULL se falhar (o chamador mantem o anterior)
+// compiles the plugin; NULL on failure (the caller keeps the previous one)
 static TCCState *compile(const char *file, int nostdlib, const ck3_plugin **out, double *ms)
 {
 	double t0 = now_ms();
@@ -50,7 +50,7 @@ static TCCState *compile(const char *file, int nostdlib, const ck3_plugin **out,
 		return NULL;
 	}
 	if (nostdlib) {
-		// so o que o hospedeiro libera: nada da API do Windows
+		// only what the host allows: nothing from the Windows API
 		tcc_add_symbol(s, "memset", memset);
 		tcc_add_symbol(s, "memcpy", memcpy);
 		tcc_add_symbol(s, "memmove", memmove);
@@ -109,7 +109,7 @@ int main(int argc, char **argv)
 	edit("plugin.c", "plugin_v2.c", "#define VERSAO 1", "#define VERSAO 2");
 	TCCState *s3 = compile("plugin_v2.c", 1, &pl2, &ms);
 	if (s3) {
-		tcc_delete(s);   // descarta o anterior so depois de o novo compilar
+		tcc_delete(s);   // discards the previous one only after the new one compiles
 		s = s3;
 		pl = pl2;
 		printf("   trocado em %.1f ms\n", ms);

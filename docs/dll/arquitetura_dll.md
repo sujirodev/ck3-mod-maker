@@ -96,7 +96,7 @@ Evolution of the current `ar_host.h` (version 3):
 typedef struct ck3_api {
 	uint32_t version;
 	void (*log)(const char *fmt, ...);
-	// primitivas (ids do jogo; -1 = sem caminho / nao achado)
+	// primitives (game ids; -1 = no path / not found)
 	int (*eta)(uint32_t unit, uint32_t prov, uint32_t *path, int *path_n, int path_max);
 	int (*eta_from)(uint32_t unit, uint32_t from, uint32_t prov);
 	int (*unit_path)(uint32_t unit, uint32_t *out, int max);
@@ -104,18 +104,18 @@ typedef struct ck3_api {
 	int (*can_raid)(uint32_t army, uint32_t prov);
 	double (*prov_loot)(uint32_t prov);
 	int (*raid_days)(uint32_t army, uint32_t prov, double done);
-	// ... leitura de unidades, provincias, personagens, variaveis, comandos
+	// ... reading units, provinces, characters, variables, commands
 } ck3_api;
 
 typedef struct ck3_plugin {
 	uint32_t version;
 	void (*on_effect)(const char *name, uint32_t scope_type, uint32_t scope_id, int64_t value, void *ctx,
 	                  uint32_t thread);
-	void (*on_command)(const char *line);   // pedidos do plugin, com prefixo (ex.: "auto_raid ...")
-	void (*on_stop)(void);                  // antes de o plugin ser trocado ou descarregado
+	void (*on_command)(const char *line);   // plugin requests, with a prefix (e.g. "auto_raid ...")
+	void (*on_stop)(void);                  // before the plugin is swapped or unloaded
 } ck3_plugin;
 
-// definida pelo plugin
+// defined by the plugin
 const ck3_plugin *ck3_plugin_start(const ck3_api *api);
 ```
 
@@ -297,16 +297,16 @@ it replaces `frontend_ingame_menu.gui` (may conflict with mods that touch the sa
 ### 11.3 Structure the mod declares (`plugin/config.txt`)
 ```
 mod auto_raid
-titulo ar_cfg_titulo                     # chave de localizacao do botao do mod
+titulo ar_cfg_titulo                     # localization key of the mod button
 grupo seguranca ar_cfg_grupo_seguranca
-  real chance 0.80 0.50 0.99 0.01        # tipo chave padrao minimo maximo passo
+  real chance 0.80 0.50 0.99 0.01        # type key default minimum maximum step
   inteiro margem 5 0 30
   inteiro horizonte 25 5 60
   inteiro parado 15 5 40
 grupo alvo ar_cfg_grupo_alvo
   inteiro raio 150 50 400 10
   real min_ouro_dia 0.5 0 5 0.05
-  lista modo_seguro 0 nao sim            # valores na ordem; o valor gravado e o indice
+  lista modo_seguro 0 nao sim            # values in order; the stored value is the index
 grupo avisos ar_cfg_grupo_avisos
   liga pausa_fuga 1
   liga pausa_guerra 1
